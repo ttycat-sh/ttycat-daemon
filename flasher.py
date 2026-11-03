@@ -1,0 +1,242 @@
+"""Puts a firmware image on the board, for the Mac app.
+
+The daemon owns the serial port, so it's the one to let go of it, run esptool, and take it
+back. An update is finished only when the board itself says it's running the new version.
+
+An image is a folder with manifest.json next to the files it names (tools/firmware_bundle.py
+makes one). Each file's hash is checked first: nothing is written from a damaged image.
+"""
+from __future__ import annotations
+
+import glob
+import hashlib
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+CHIP = "esp32c5"  # esptool refuses to write if the board turns out to be another chip
+BAUD = "460800"
+FLASH_TIMEOUT_S = 180
+COMES_BACK_S = 30
+MESSAGE_LEN = 120
+PROGRESS = re.compile(r"Writing at 0x([0-9a-fA-F]+)\D*?\((\d+) ?%\)")
+ESPTOOLS = "~/.espressif/python_env/*/lib/python*/site-packages/esptool/__init__.py"
+CANT_CONNECT = "Couldn't reach the board. Hold BOOT while you plug it in, then try again."
+
+
+def find_esptool() -> list[str] | None:
+    """The app's own copy, or ESP-IDF's with the Python it's installed for. Only looks at files: this runs often."""
+    own = Path(sys.prefix) / "lib" / f"python{sys.version_info[0]}.{sys.version_info[1]}" / "site-packages" / "esptool" / "__init__.py"
+    if own.exists():
+        return [sys.executable, "-E", "-s", "-B", "-m", "esptool"]
+    for path in sorted(glob.glob(os.path.expanduser(ESPTOOLS)), reverse=True):
+        env = Path(path).parents[4]
+        python = env / "bin" / "python"
+        if python.exists():
+            return [str(python), "-m", "esptool"]
+    return None
+
+
+def read_image(folder: str) -> dict:
+    """The manifest, once everything in it is known to be sound. Raises ValueError otherwise."""
+    root = Path(folder)
+    try:
+        manifest = json.loads((root / "manifest.json").read_text())
+        version, files, flash = manifest["version"], manifest["files"], manifest["flash"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise ValueError(f"no usable firmware image: {e}") from e
+    if manifest.get("chip") != CHIP:
+        raise ValueError(f"this image is for {manifest.get('chip')}, not {CHIP}")
+    if not isinstance(version, str) or not version or not isinstance(files, list) or not files:
+        raise ValueError("no usable firmware image: nothing in it")
+    if not isinstance(flash, list) or not all(isinstance(a, str) and re.fullmatch(r"[\w-]+", a) for a in flash):
+        raise ValueError("no usable firmware image: bad flash settings")
+    checked = []
+    for f in files:
+        try:
+            offset, name, size, digest = f["offset"], f["path"], f["size"], f["sha256"]
+        except (KeyError, TypeError) as e:
+            raise ValueError("no usable firmware image: bad file entry") from e
+        if not isinstance(offset, str) or not re.fullmatch(r"0x[0-9a-fA-F]+", offset):
+            raise ValueError(f"bad offset for {name}")
+        path = (root / str(name)).resolve()
+        if root.resolve() not in path.parents:
+            raise ValueError(f"{name} is outside the image")
+        try:
+            data = path.read_bytes()
+        except OSError as e:
+            raise ValueError(f"missing from the image: {name}") from e
+        if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+            raise ValueError(f"damaged image: {name}")
+        checked.append({"offset": offset, "path": str(path), "size": size})
+    return {"version": version, "flash": flash, "files": checked}
+
+
+class Flasher:
+    """idle -> flashing -> restarting -> done, or failed from either. Never blocks the daemon."""
+
+    def __init__(self, log=print, tool=find_esptool):
+        self.log = log
+        self.tool = tool
+        self.state = "idle"
+        self.pct = 0
+        self.msg = ""
+        self.to: str | None = None
+        self.process: subprocess.Popen | None = None
+        self.fd: int | None = None
+        self.deadline = 0.0
+        self.files: list[dict] = []
+        self.written: dict[int, int] = {}
+        self.partial = b""
+        self.last_lines: list[str] = []
+
+    @property
+    def busy(self) -> bool:
+        return self.state in ("flashing", "restarting")
+
+    @property
+    def holds_port(self) -> bool:
+        return self.state == "flashing"
+
+    def info(self) -> dict:
+        return {"state": self.state, "pct": self.pct, "msg": self.msg, "to": self.to, "tool": self.tool() is not None}
+
+    def start(self, folder: str, port: str | None, fw: str | None, unknown_ok: bool) -> tuple[bool, str]:
+        """`fw` is what the board on `port` said it runs. A port that hasn't said anything could
+        be any other device, so it needs `unknown_ok`: the person was told which port it is."""
+        if self.busy:
+            return False, "already updating"
+        if not port:
+            return False, "no board connected"
+        if fw is None and not unknown_ok:
+            return False, "the board hasn't said what it is"
+        tool = self.tool()
+        if not tool:
+            return False, "esptool not found"
+        try:
+            image = read_image(folder)
+        except ValueError as e:
+            return False, str(e)
+        command = [*tool, "--chip", CHIP, "-p", port, "-b", BAUD, "--before", "default_reset", "--after", "hard_reset",
+                   "write_flash", *image["flash"]]
+        for f in image["files"]:
+            command += [f["offset"], f["path"]]
+        self.files, self.written, self.partial, self.last_lines = image["files"], {}, b"", []
+        self.to, self.pct, self.msg = image["version"], 0, ""
+        try:
+            self.process = subprocess.Popen(
+                command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"}, start_new_session=True)
+        except OSError as e:
+            self.process = None
+            return False, f"couldn't start esptool: {e}"
+        self.fd = self.process.stdout.fileno()
+        os.set_blocking(self.fd, False)
+        self.state = "flashing"
+        self.deadline = time.monotonic() + FLASH_TIMEOUT_S
+        self.log("firmware: writing", image["version"], "to", port, f"(board had {fw})")
+        return True, ""
+
+    def on_output(self):
+        """The select loop says esptool has written something, or has ended."""
+        if self.fd is None:
+            return
+        try:
+            data = os.read(self.fd, 65536)
+        except BlockingIOError:
+            return
+        except OSError:
+            data = b""
+        if data:
+            *lines, self.partial = re.split(rb"[\r\n]", self.partial + data)
+            for line in lines:
+                self._line(line.decode(errors="replace").strip())
+            return
+        self._line(self.partial.decode(errors="replace").strip())
+        self.partial = b""
+        self._ended(self.process.wait())
+
+    def _line(self, line: str):
+        if not line:
+            return
+        hit = PROGRESS.search(line)
+        if hit:
+            self._progress(int(hit.group(1), 16), int(hit.group(2)))
+            return
+        self.last_lines = (self.last_lines + [line])[-6:]
+        if line.startswith("Hash of data verified"):  # esptool reads each file back
+            self.log("firmware:", line)
+
+    def _progress(self, address: int, percent: int):
+        for i, f in enumerate(self.files):
+            start = int(f["offset"], 16)
+            if start <= address < start + f["size"]:
+                self.written[i] = f["size"] * percent // 100
+        total = sum(f["size"] for f in self.files)
+        self.pct = min(99, sum(self.written.values()) * 100 // total) if total else 0
+
+    def _ended(self, status: int):
+        if self.fd is not None:
+            self.process.stdout.close()
+        self.fd, self.process = None, None
+        if status == 0:
+            self.state, self.pct = "restarting", 100
+            self.deadline = time.monotonic() + COMES_BACK_S
+            self.log("firmware: written, waiting for the board")
+        else:
+            self._fail(self._reason(status))
+
+    def _reason(self, status: int) -> str:
+        if status < 0:
+            return "The update was interrupted. Try again."
+        said = " ".join(self.last_lines)
+        if "Failed to connect" in said or "No serial data received" in said:
+            return CANT_CONNECT
+        for line in reversed(self.last_lines):
+            if "error" in line.lower():
+                return line[:MESSAGE_LEN]
+        return f"esptool stopped with status {status}"
+
+    def _fail(self, reason: str):
+        self.state, self.msg = "failed", reason
+        self.log("firmware: failed:", reason, "|", " / ".join(self.last_lines)[:300])
+
+    def board_said(self, fw: str | None):
+        """The board said hello: this is the only proof that an update worked."""
+        if self.state != "restarting":
+            return
+        if fw == self.to:
+            self.state, self.msg = "done", ""
+            self.log("firmware: board now runs", fw)
+        else:
+            self._fail(f"the board came back running {fw}, not {self.to}")
+
+    def tick(self):
+        if self.state == "flashing" and time.monotonic() >= self.deadline:
+            self._stop()
+            self._fail("esptool took too long")
+        elif self.state == "restarting" and time.monotonic() >= self.deadline:
+            self._fail("the board didn't come back after writing. Unplug it and plug it back in.")
+
+    def _stop(self):
+        if self.process:
+            try:
+                os.killpg(self.process.pid, signal.SIGTERM)
+            except OSError:
+                pass
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+            self.process.stdout.close()
+        self.fd, self.process = None, None
+
+    def close(self):
+        """The daemon is stopping. The ROM on the chip can always be written again."""
+        self._stop()

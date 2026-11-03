@@ -1,0 +1,1091 @@
+{
+"note": "Synthetic screens, generated from the rules. state and rule are what herdr 0.8.2's `agent explain` said, with rules 2026.10.11.1.",
+"screens": [
+{
+"agent": "amp",
+"screen": "some output\n\nPlugin confirmation needed\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "amp",
+"screen": "some output\n\nwaiting for approval\ninvoke tool\nrun this command?\nallow editing file:\nallow creating file:\nconfirm tool call\napprove\nallow all for this session\nallow all for every session\nallow file for every session\ndeny with feedback\n",
+"state": "blocked",
+"rule": "approval_footer"
+},
+{
+"agent": "amp",
+"screen": "some output\n\nesc to cancel\n",
+"state": "working",
+"rule": "esc_cancel_working"
+},
+{
+"agent": "agy",
+"screen": "some output\n\nnavigate\ntab amend\n",
+"state": "blocked",
+"rule": "permission_prompt"
+},
+{
+"agent": "agy",
+"screen": "──────────────────────────────\nnavigate\ntab amend\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "agy",
+"screen": "some output\n\nnavigate\nesc skip\n",
+"state": "blocked",
+"rule": "question_prompt"
+},
+{
+"agent": "agy",
+"screen": "some output\n\ndo you trust the contents of this project?\nyes, i trust this folder\nenter confirm\n",
+"state": "blocked",
+"rule": "trust_prompt"
+},
+{
+"agent": "agy",
+"screen": "some output\n\nrequesting permission for:\ndo you want to proceed?\ntab amend\nedit command\n",
+"state": "blocked",
+"rule": "legacy_permission_prompt"
+},
+{
+"agent": "claude",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "claude",
+"screen": "• did a thing\nx \n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": "live_prompt_box"
+},
+{
+"agent": "claude",
+"screen": "some output\n\nesc to cancel\nenter to confirm\nenter to select\ntab/arrow keys to navigate\narrow keys to navigate\narrows to navigate\n↑/↓ to navigate\n↑↓ to navigate\n",
+"state": "blocked",
+"rule": "live_blocked_form"
+},
+{
+"agent": "claude",
+"screen": "some output\n\nrun a dynamic workflow?\nesc to cancel\n",
+"state": "blocked",
+"rule": "dynamic_workflow_prompt"
+},
+{
+"agent": "claude",
+"screen": "some output\n\nselect model\nenter to set as default\nesc to cancel\n",
+"state": "unknown",
+"rule": "model_picker_menu"
+},
+{
+"agent": "claude",
+"screen": "some output\n\ndo you want to proceed?\nbash command\nbash(\ncontains expansion\ntab to amend\nctrl+e to explain\n",
+"state": "blocked",
+"rule": "legacy_no_prompt_blocker"
+},
+{
+"agent": "claude",
+"screen": "some output\n\ndo you want to\nyes\n❯\nwould you like to\nyes\n❯\nwaiting for permission\ndo you want to allow this connection?\ntab to amend\nctrl+e to explain\ndo you want to proceed?\nesc to cancel\nreview your answers\nskip interview and plan immediately\n",
+"state": "blocked",
+"rule": "bash_permission_prompt"
+},
+{
+"agent": "cline",
+"screen": "some output\n\nlet cline use this tool\n[act mode]\nexecute command?\nyes\n[act mode]\nuse this tool?\nyes\n[plan mode]\nexecute command?\nyes\n[plan mode]\nuse this tool?\nyes\n",
+"state": "blocked",
+"rule": "tool_permission"
+},
+{
+"agent": "cline",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "working",
+"rule": "default_cline_working"
+},
+{
+"agent": "cline",
+"screen": "some output\n\nCline needs permission\nApprove tool call?\n[y] Approve\n[n] Deny\n",
+"state": "blocked",
+"rule": "inline_tool_permission"
+},
+{
+"agent": "cline",
+"screen": "──────────────────────────────\n(Tab)\nShift+Tab\n Cline is asking a question \n > S\n──────────────────────────────\n› \nfooter\n",
+"state": "blocked",
+"rule": "inline_question"
+},
+{
+"agent": "cline",
+"screen": "some output\n\nThinking... (esc to cancel)\n",
+"state": "working",
+"rule": "active_turn"
+},
+{
+"agent": "cline",
+"screen": "",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "codex",
+"screen": "some output\n\nAction Required\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "codex",
+"screen": "some output\n\n↑/↓ to scroll\npgup/pgdn to\nhome/end to jump\nq to quit\nesc to edit prev\nesc/← to edit prev\n",
+"state": "unknown",
+"rule": "transcript_viewer"
+},
+{
+"agent": "codex",
+"screen": "some output\n\nFolder access\nTrust this folder?\nCodex can read, edit, and run files here\nTrust and continue\nenter continue\n",
+"state": "blocked",
+"rule": "trust_directory"
+},
+{
+"agent": "codex",
+"screen": "some output\n\npress enter to confirm or esc to cancel\nenter to submit answer\nenter to submit all\nallow command?\nAll Results\nFilesystem Only\nPlugins\n",
+"state": "blocked",
+"rule": "live_strong_blocker"
+},
+{
+"agent": "codex",
+"screen": "some output\n\n[y/n]\nyes (y)\ndo you want to\nyes\n❯\nwould you like to\nyes\n❯\n",
+"state": "blocked",
+"rule": "weak_blocker"
+},
+{
+"agent": "cursor",
+"screen": "some output\n\nwrite to this file?\nproceed (y)\nreject & propose changes\nesc or n or p\nadd write(\n",
+"state": "blocked",
+"rule": "write_file_approval"
+},
+{
+"agent": "cursor",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "cursor",
+"screen": "some output\n\nwaiting for approval\nrun this command?\nrun (once) (y)\nskip (esc or n)\n(y) (enter)\nkeep (n)\nskip (esc or n)\n",
+"state": "blocked",
+"rule": "approval_prompt"
+},
+{
+"agent": "cursor",
+"screen": "some output\n\nctrl+c to stop\n",
+"state": "working",
+"rule": "stop_hint_working"
+},
+{
+"agent": "devin",
+"screen": "some output\n\ndo you trust the authors of this directory?\nwith untrusted content.\nyes, trust \n",
+"state": "blocked",
+"rule": "workspace_trust_prompt"
+},
+{
+"agent": "devin",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "devin",
+"screen": "some output\n\napprove once\nselect\nconfirm\nesc cancel\n",
+"state": "blocked",
+"rule": "permission_prompt"
+},
+{
+"agent": "devin",
+"screen": "some output\n\nrunning tools\nesc to interrupt\n",
+"state": "working",
+"rule": "running_tools_footer"
+},
+{
+"agent": "devin",
+"screen": "some output\n\nguide devin while it works\n",
+"state": "working",
+"rule": "guide_while_working"
+},
+{
+"agent": "devin",
+"screen": "some output\n\nreading shell \ntimeout:\n",
+"state": "working",
+"rule": "tool_reading_timeout"
+},
+{
+"agent": "devin",
+"screen": "──────────────────────────────\nask devin to build\nfeatures, fix bugs\nyour code\n ❭ Ask Devin to build\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": "welcome_prompt_footer"
+},
+{
+"agent": "devin",
+"screen": "──────────────────────────────\ncontext:\n ❭\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": "live_prompt_footer"
+},
+{
+"agent": "droid",
+"screen": "some output\n\nenter to select\nesc to cancel\n> yes, allow\n> no, cancel\n↑↓ to navigate\nuse ↑↓ to navigate\n",
+"state": "blocked",
+"rule": "execute_selection_blocker"
+},
+{
+"agent": "droid",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "droid",
+"screen": "some output\n\nenter select\nesc cancel\n↑/↓ navigate\n↑↓ navigate\n",
+"state": "blocked",
+"rule": "selection_menu_blocker"
+},
+{
+"agent": "droid",
+"screen": "some output\n\nesc to stop\n",
+"state": "working",
+"rule": "stop_hint_working"
+},
+{
+"agent": "gemini",
+"screen": "some output\n\n│ Apply this change\n│ Allow execution\nyes\nwaiting for user confirmation\n│ Do you want to proceed\ndo you want to proceed?\n",
+"state": "blocked",
+"rule": "apply_or_allow_change"
+},
+{
+"agent": "gemini",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "gemini",
+"screen": "some output\n\nesc to cancel\n",
+"state": "working",
+"rule": "esc_cancel_working"
+},
+{
+"agent": "copilot",
+"screen": "some output\n\nesc to cancel\nesc cancel\nenter to select\nenter to confirm\nenter to submit\nenter accept\n",
+"state": "blocked",
+"rule": "selection_blocker"
+},
+{
+"agent": "copilot",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "copilot",
+"screen": "some output\n\nesc to cancel\nesc cancel\nesc again to cancel\nesc interrupt\n",
+"state": "working",
+"rule": "working_cancel_hint"
+},
+{
+"agent": "grok",
+"screen": "some output\n\nAction Required\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "grok",
+"screen": "some output\n\ntab:scrollback\nshift+x:dismiss\n",
+"state": "blocked",
+"rule": "question_dialog_hints_blocked"
+},
+{
+"agent": "grok",
+"screen": "some output\n\nyes, proceed\nno, reject\nuse ← → to choose permission whitelist scope\n←/→:scope\n",
+"state": "blocked",
+"rule": "permission_scope_selector"
+},
+{
+"agent": "grok",
+"screen": "some output\n\nctrl+c:cancel\nctrl+enter:interject\nwaiting\n",
+"state": "working",
+"rule": "waiting_tool_working"
+},
+{
+"agent": "grok",
+"screen": "some output\n\nctrl+.:shortcuts\n",
+"state": "idle",
+"rule": "prompt_hints_idle"
+},
+{
+"agent": "hermes",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "hermes",
+"screen": "some output\n\nenter confirm\nenter to confirm\n↑/↓ to select\nshow full command\ndangerous\napproval\nallow once\ndeny\n",
+"state": "blocked",
+"rule": "dangerous_command_approval"
+},
+{
+"agent": "hermes",
+"screen": "some output\n\nenter confirm\nenter to confirm\nenter send\npress enter\n↑/↓ select\n↑/↓ to select\nother (type\nhermes needs your\ntype your answer\n",
+"state": "blocked",
+"rule": "clarification_prompt"
+},
+{
+"agent": "hermes",
+"screen": "some output\n\nsudo password\nskill setup\n🔑\nfor \n",
+"state": "blocked",
+"rule": "credential_prompt"
+},
+{
+"agent": "hermes",
+"screen": "some output\n\napprove once\ncancel\nstart a new session\nkeep going\nenter to confirm\nenter confirm\ntype 1/2/3\ny/n quick\n",
+"state": "blocked",
+"rule": "confirmation_prompt"
+},
+{
+"agent": "hermes",
+"screen": "some output\n\nmsg=interrupt\nctrl+c to interrupt\n",
+"state": "working",
+"rule": "interrupt_status_working"
+},
+{
+"agent": "hermes",
+"screen": "some output\n\nctrl+c cancel\n",
+"state": "working",
+"rule": "classic_cancel_working"
+},
+{
+"agent": "kilo",
+"screen": "some output\n\n△ Permission required\nesc dismiss\n↑↓ select\n⇆ tab\nenter confirm\nenter submit\nenter toggle\n",
+"state": "blocked",
+"rule": "opencode_permission"
+},
+{
+"agent": "kilo",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kilo",
+"screen": "some output\n\nesc interrupt\n",
+"state": "working",
+"rule": "esc_interrupt_working"
+},
+{
+"agent": "kimi",
+"screen": "some output\n\n↵ confirm\n choose\napprove\nreject\nrevise\nrun this command?\nwrite this file?\napply these edits?\nstop this task?\nready to build with this plan?\n",
+"state": "blocked",
+"rule": "current_approval_panel"
+},
+{
+"agent": "kimi",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kimi",
+"screen": "some output\n\nrequesting approval\nreject\n1/2/3/4 choose\n↵ confirm\napprove once\napprove for this session\n",
+"state": "blocked",
+"rule": "legacy_approval_panel"
+},
+{
+"agent": "kiro",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kiro",
+"screen": "some output\n\ntool approval\napprove all pending\nconfigure individually (agent monitor)\nexit (cancel subagents)\n",
+"state": "blocked",
+"rule": "crew_approval"
+},
+{
+"agent": "kiro",
+"screen": "some output\n\nto navigate\nto submit\nesc to cancel\n",
+"state": "blocked",
+"rule": "question_panel"
+},
+{
+"agent": "kiro",
+"screen": "some output\n\nkiro is working\ntype to steer\nctrl+s to queue\n",
+"state": "working",
+"rule": "live_working_footer"
+},
+{
+"agent": "maki",
+"screen": "some output\n\npermission required\ny allow\nn deny\nconfirm allow\nconfirm deny\nenter deny\nesc cancel\n",
+"state": "blocked",
+"rule": "permission_prompt"
+},
+{
+"agent": "maki",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": "prompt_box_idle"
+},
+{
+"agent": "maki",
+"screen": "some output\n\nplan complete\nenter confirm\nspace toggle parallel\nedit plan\n",
+"state": "blocked",
+"rule": "plan_complete_form"
+},
+{
+"agent": "maki",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "opencode",
+"screen": "some output\n\n△ Permission required\nesc dismiss\n↑↓ select\n⇆ tab\nenter confirm\nenter submit\nenter toggle\n",
+"state": "blocked",
+"rule": "permission_required"
+},
+{
+"agent": "opencode",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "opencode",
+"screen": "some output\n\nesc to interrupt\nctrl+c to interrupt\npress esc to interrupt\n",
+"state": "working",
+"rule": "interrupt_hint_working"
+},
+{
+"agent": "pi",
+"screen": "some output\n\nWorking...\n",
+"state": "working",
+"rule": "working_literal"
+},
+{
+"agent": "pi",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qodercli",
+"screen": "some output\n\nwaiting for user confirmation\nyes\nno\nallow\nreject\nawaiting approval\nallow\nreject\npermission required\nallow once or always?\nasking user\nenter your response\nreview your answers:\nshell awaiting input\n",
+"state": "blocked",
+"rule": "confirmation_or_input_blocker"
+},
+{
+"agent": "qodercli",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qodercli",
+"screen": "some output\n\n(esc to cancel,\n",
+"state": "working",
+"rule": "cancel_hint_working"
+},
+{
+"agent": "qwen",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qwen",
+"screen": "──────────────────────────────\nWaiting for user confirmation...\n等待用户确认...\n等待用戶確認...\nWarten auf Benutzerbestätigung...\nEn attente de la confirmation de l'utilisateur...\nユーザーの確認を待っています...\nAguardando confirmação do usuário...\nОжидание подтверждения от пользователя...\nEsperant la confirmació de l'usuari...\n ⠏ .... \n──────────────────────────────\n› \nfooter\n",
+"state": "blocked",
+"rule": "waiting_for_confirmation"
+},
+{
+"agent": "qwen",
+"screen": "some output\n\nyes, allow once\napply this change?\nallow execution of:\nallow execution of mcp tool\ndo you want to proceed?\nshell command execution\n",
+"state": "blocked",
+"rule": "tool_confirmation"
+},
+{
+"agent": "qwen",
+"screen": "some output\n\ndo you trust this folder?\ntrust folder (\ndon't trust (esc)\n",
+"state": "blocked",
+"rule": "folder_trust_dialog"
+},
+{
+"agent": "qwen",
+"screen": "──────────────────────────────\ntype your message\nyour message or @path/to/file\n@path/to/file\ntype\nmes\nsage\n@pat\nh/to\n/fil\n > :type .\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": "composer_idle"
+},
+{
+"agent": "amp",
+"screen": "╰ a thinking ─\n",
+"state": "working",
+"rule": "status_footer_working"
+},
+{
+"agent": "agy",
+"screen": "───esc to cancel\n",
+"state": "working",
+"rule": "esc_cancel_footer_working"
+},
+{
+"agent": "agy",
+"screen": "⠁ a\n",
+"state": "working",
+"rule": "spinner_working"
+},
+{
+"agent": "claude",
+"screen": "⏸esc to interrupt \n",
+"state": "working",
+"rule": "live_turn_working"
+},
+{
+"agent": "claude",
+"screen": "* Waiting for 1 background agent to finish\n",
+"state": "working",
+"rule": "background_agents_working"
+},
+{
+"agent": "claude",
+"screen": "* a· 1 MCP task still running\n",
+"state": "working",
+"rule": "background_mcp_task_working"
+},
+{
+"agent": "claude",
+"screen": "/btw \nesc to close\n",
+"state": "working",
+"rule": "btw_overlay_working"
+},
+{
+"agent": "claude",
+"screen": "showing detailed transcript\nctrl+o\nto toggle\n",
+"state": "unknown",
+"rule": "transcript_viewer"
+},
+{
+"agent": "claude",
+"screen": "enter to confirm · esc to cancel\n───\n",
+"state": "blocked",
+"rule": "live_blocked_form_named_session"
+},
+{
+"agent": "claude",
+"screen": "esc to cancel\nMCP server \"x\" requests your input\nAccept\n",
+"state": "blocked",
+"rule": "mcp_elicitation_prompt"
+},
+{
+"agent": "claude",
+"screen": "do you want to proceed?\nesc to cancel\n1.yes\n",
+"state": "blocked",
+"rule": "generic_permission_prompt"
+},
+{
+"agent": "cline",
+"screen": "─\n(Tab)\nShift+Tab\n❯\n",
+"state": "idle",
+"rule": "composer_idle"
+},
+{
+"agent": "codex",
+"screen": "Update available!\nUpdate now\nSkip until next version\nPress enter to continue\n",
+"state": "blocked",
+"rule": "startup_update"
+},
+{
+"agent": "codex",
+"screen": "x (0s)\n to interrupt)\n",
+"state": "working",
+"rule": "screen_working_fallback"
+},
+{
+"agent": "cursor",
+"screen": "1 background task\n",
+"state": "working",
+"rule": "background_task_status_working"
+},
+{
+"agent": "cursor",
+"screen": "⬡ xing\n",
+"state": "working",
+"rule": "spinner_working"
+},
+{
+"agent": "droid",
+"screen": "esc to stop\n⠀\n",
+"state": "working",
+"rule": "spinner_stop_working"
+},
+{
+"agent": "copilot",
+"screen": "◎ Waiting for background agents \n",
+"state": "working",
+"rule": "background_agents_working"
+},
+{
+"agent": "grok",
+"screen": "┃ 0 (●) \n",
+"state": "blocked",
+"rule": "option_dialog_blocked"
+},
+{
+"agent": "grok",
+"screen": ":select ctrl+o:yolo ctrl+c:cancel\n",
+"state": "blocked",
+"rule": "permission_hints_blocked"
+},
+{
+"agent": "grok",
+"screen": "⠁ [stop]\n",
+"state": "working",
+"rule": "spinner_status_working"
+},
+{
+"agent": "grok",
+"screen": "ctrl+.:shortcuts\nesc:cancel\n",
+"state": "working",
+"rule": "esc_cancel_hints_working"
+},
+{
+"agent": "kimi",
+"screen": "↑↓ select\nesc cancel\nquestion\n? \n↵ choose\n",
+"state": "blocked",
+"rule": "question_panel"
+},
+{
+"agent": "kimi",
+"screen": "kimi thinking[1 agent running]\n",
+"state": "working",
+"rule": "background_agent_status_working"
+},
+{
+"agent": "kimi",
+"screen": "🌕\n",
+"state": "working",
+"rule": "moon_spinner_working"
+},
+{
+"agent": "kimi",
+"screen": "⠀thinking...\n",
+"state": "working",
+"rule": "braille_spinner_working"
+},
+{
+"agent": "kiro",
+"screen": ">ask a question or describe a task\n",
+"state": "idle",
+"rule": "live_prompt_idle"
+},
+{
+"agent": "kiro",
+"screen": "-\nrequires approval·modify request\n>\n-\nesc to close\n",
+"state": "blocked",
+"rule": "tool_approval_edit"
+},
+{
+"agent": "maki",
+"screen": " ⠀ [BUILD]\n",
+"state": "working",
+"rule": "status_bar_spinner_working"
+},
+{
+"agent": "maki",
+"screen": " [BUILD]\n",
+"state": "idle",
+"rule": "status_bar_idle"
+},
+{
+"agent": "opencode",
+"screen": "■■■■\n",
+"state": "working",
+"rule": "progress_bar_working"
+},
+{
+"agent": "pi",
+"screen": "── ⠋ Working ─\n",
+"state": "working",
+"rule": "working_border"
+},
+{
+"agent": "qodercli",
+"screen": "⠀ x\n",
+"state": "working",
+"rule": "spinner_working"
+},
+{
+"agent": "qwen",
+"screen": "❯1. \n↑/↓:Enter:\n",
+"state": "blocked",
+"rule": "question_dialog"
+},
+{
+"agent": "qwen",
+"screen": "⠁ (1m · esc to cancel)\n",
+"state": "working",
+"rule": "cancel_hint_working"
+},
+{
+"agent": "qwen",
+"screen": "(1m · esc to cancel)\n",
+"state": "working",
+"rule": "narrow_cancel_hint_working"
+},
+{
+"agent": "amp",
+"screen": "some output\n\nPlugin confirmation needed\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "amp",
+"screen": "──────────────────────────────\nPlugin confirmation needed\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "amp",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "agy",
+"screen": "──────────────────────────────\nnavigate\ntab amend\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "agy",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "agy",
+"screen": "──────────────────────────────\nnavigate\nesc skip\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "claude",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "claude",
+"screen": "──────────────────────────────\nx \n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "claude",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "cline",
+"screen": "",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "codex",
+"screen": "some output\n\nAction Required\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "codex",
+"screen": "──────────────────────────────\nAction Required\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "codex",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "cursor",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "cursor",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "cursor",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "devin",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "devin",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "devin",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "droid",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "droid",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "droid",
+"screen": "• did a thing\n x\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "gemini",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "gemini",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "gemini",
+"screen": "› waiting for user confirmation\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "copilot",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "copilot",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "copilot",
+"screen": "──────────────────────────────\n ◎ Waiting for background agents: ·\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "grok",
+"screen": "some output\n\nAction Required\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "grok",
+"screen": "──────────────────────────────\nAction Required\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "grok",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "hermes",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "hermes",
+"screen": "──────────────────────────────\n⚠x: \n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "hermes",
+"screen": "• did a thing\n⚠x: \n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kilo",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kilo",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kilo",
+"screen": "› ⇆ tab\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kimi",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kimi",
+"screen": "some output\n\n↑↓ select\nesc cancel\n↵ choose\n↵ toggle\n↵ save\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kimi",
+"screen": "──────────────────────────────\n↑↓ select\nesc cancel\n↵ choose\n↵ toggle\n↵ save\n question \n  \n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kiro",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kiro",
+"screen": "──────────────────────────────\n x ask a question or describe a task: :enter↵ \n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "kiro",
+"screen": "• did a thing\n x ask a question or describe a task: :enter↵ \n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "maki",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "maki",
+"screen": "──────────────────────────────\n x{1,2} x\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "maki",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "opencode",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "opencode",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "opencode",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "pi",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "pi",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "pi",
+"screen": "──────────────────────────────\n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qodercli",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qodercli",
+"screen": "• did a thing\n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qodercli",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qwen",
+"screen": "some output\n\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qwen",
+"screen": "──────────────────────────────\nx{2733}x{FE0E} \n──────────────────────────────\n› \nfooter\n",
+"state": "idle",
+"rule": ""
+},
+{
+"agent": "qwen",
+"screen": "• did a thing\nx{2733}x{FE0E} \n› typed text\n────────────────────\n❯ \n────────────────────\n  status\n",
+"state": "idle",
+"rule": ""
+}
+]
+}
