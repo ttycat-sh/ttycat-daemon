@@ -44,7 +44,7 @@ CTL_PATH = Path.home() / ".ttycat" / "ctl.sock"
 LOCK_PATH = Path.home() / ".ttycat" / "daemon.lock"
 ALREADY_RUNNING = 3  # exit status the Mac app looks for
 # All the app may do. An answer needs the exact prompt's rev: see approvals.Hub.answer.
-APP_ACTIONS = {"open", "seen", "allow", "answer", "deny", "deny-retry", "deny-explain",
+APP_ACTIONS = {"open", "seen", "allow", "answer", "deny",
                "pet-feed", "pet-clean", "pet-heal", "pet-sleep", "pet-pat", "pet-play"}
 APP_ACTIVITY_ROWS = 30
 MAX_CTL_REQUEST = 256 * 1024

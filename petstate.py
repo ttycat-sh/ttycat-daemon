@@ -1,8 +1,8 @@
 """The pet's life: what it needs, and what's been done for it. The board only draws this.
 
 It's a companion, not a chore. It gets sad and can get sick, but it never dies, and it
-never beeps: the chime means an agent needs you. Food comes from turns agents finish,
-never from approvals, so there's no reason to approve anything faster.
+never beeps: the chime means an agent needs you. Food comes from turns ending, however
+they end. Allow and Deny earn the same, so the pet is never a reason to answer either way.
 """
 from __future__ import annotations
 
@@ -148,7 +148,7 @@ class Pet:
         return ""
 
     def finished(self):
-        """An agent finished a turn: one snack in the pantry, and it grows."""
+        """A turn ended, whether it ran to the end or was denied: one snack in the pantry, and it grows."""
         with self.lock:
             self._roll()
             self.total += 1

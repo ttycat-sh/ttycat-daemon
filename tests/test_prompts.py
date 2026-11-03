@@ -233,18 +233,22 @@ class HubCase(unittest.TestCase):
         self.assertEqual(self.hub.answer("w:p1", p.id, "allow"), (True, ""))
         self.assertEqual(self.finish(h), {"behavior": "allow"})
 
-    def test_deny_stop_interrupts(self):
+    def test_deny_ends_the_turn_and_says_not_to_work_around_it(self):
         h = self.ask()
         self.hub.answer("w:p1", self.wait_pending().id, "deny")
         d = self.finish(h)
         self.assertEqual((d["behavior"], d["interrupt"]), ("deny", True))
+        self.assertIn("Do not do it", d["message"])
+        self.assertIn("another way", d["message"])
 
-    def test_deny_with_a_reason_lets_claude_continue(self):
+    def test_no_answer_denies_and_lets_the_agent_carry_on(self):
         h = self.ask()
-        self.hub.answer("w:p1", self.wait_pending().id, "deny-explain")
-        d = self.finish(h)
-        self.assertEqual((d["behavior"], d["interrupt"]), ("deny", False))
-        self.assertIn("Explain", d["message"])
+        p = self.wait_pending()
+        for action in ("deny-retry", "deny-explain"):
+            self.assertEqual(self.hub.answer("w:p1", p.id, action), (False, "unknown action"))
+        self.assertIsNone(h.poll())
+        self.hub.answer("w:p1", p.id, "deny")
+        self.finish(h)
 
     def test_wrong_rev_decides_nothing(self):
         h = self.ask()
@@ -846,7 +850,7 @@ class MacApp(unittest.TestCase):
 
     def test_the_app_can_do_only_what_is_listed(self):
         source = self.Recording()
-        for action in ("deny-stop", "tap", "unknown", ""):
+        for action in ("deny-stop", "deny-retry", "deny-explain", "tap", "unknown", ""):
             reply = ttycatd.app_action(source, {"t": "app-act", "a": action, "id": "p1", "rev": "r", "ans": [1]})
             self.assertFalse(reply["ok"], action)
         self.assertEqual(source.calls, [])
@@ -1280,8 +1284,14 @@ class Life(unittest.TestCase):
         self.assertEqual(self.source("working", "done"), 1)
         self.assertEqual(self.source("working", "idle"), 2)
 
-    def test_prompts_and_denials_do_not(self):
-        self.assertEqual(self.source("idle", "blocked", "idle"), 0)
+    def test_denying_earns_what_allowing_does(self):
+        allowed = self.source("working", "blocked", "working", "done")
+        self.path.unlink(missing_ok=True)
+        denied = self.source("working", "blocked", "idle")
+        self.assertEqual((allowed, denied), (1, 1))
+
+    def test_a_prompt_on_its_own_does_not_feed_it(self):
+        self.assertEqual(self.source("working", "blocked"), 0)
 
     def test_the_app_can_look_after_the_pet(self):
         p = Pet(self.path)

@@ -294,7 +294,8 @@ class HerdrSource:
             if not prior or prior[0] != status:
                 if prior and status != "blocked":
                     self._note_state(pane, 2 if status == "done" else 0, f"{status}{': ' + title if title else ''}")
-                if prior and prior[0] == "working" and status in ("done", "idle"):
+                # However it ended: a denied turn earns what an allowed one does, so the pet never favors yes.
+                if prior and prior[0] in ("working", "blocked") and status in ("done", "idle"):
                     self.pet_stats.finished()
                 self.since[pane] = (status, now)
                 if status != "done":
@@ -401,7 +402,7 @@ class HerdrSource:
             return True, ""
         if action == "open":
             return self._open(pane)
-        if action in ("allow", "answer") or action.startswith("deny"):
+        if action in ("allow", "answer", "deny"):
             return self._answer(action, pane, rev, picks, via)
         return False, "unknown action"
 

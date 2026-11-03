@@ -35,11 +35,8 @@ TOO_LONG_NOTE = "Too long to read here. Answer it in the terminal"
 MAX_QUESTIONS, MAX_OPTIONS = 4, 4   # what Claude's tool allows, and what the board has room for
 MAX_TYPED = 1000                    # the Mac app's field stops here; the board's keyboard sooner
 
-DENIALS = {
-    "deny": ("The person denied this from ttycat and wants to decide what happens next.", True),
-    "deny-retry": ("The person denied this from ttycat. Try a different approach.", False),
-    "deny-explain": ("The person denied this from ttycat. Explain why it is needed before trying again.", False),
-}
+# Deny means no: it ends the turn. No answer here tells the agent to carry on.
+DENIAL = "The person denied this from ttycat. Do not do it, and do not try to get the same result another way. Wait for them to say what happens next."
 
 
 def fit(text: str, n: int) -> str:
@@ -337,9 +334,8 @@ class Hub:
             return False, "answer it in the terminal"
         elif action == "allow":
             reply = {"behavior": "allow"}
-        elif action in DENIALS:
-            message, interrupt = DENIALS[action]
-            reply = {"behavior": "deny", "message": message, "interrupt": interrupt}
+        elif action == "deny":
+            reply = {"behavior": "deny", "message": DENIAL, "interrupt": True}
         else:
             return False, "unknown action"
         try:
