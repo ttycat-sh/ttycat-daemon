@@ -1149,31 +1149,6 @@ class Life(unittest.TestCase):
         self.later(p, 11)
         self.assertLessEqual(p.poops, petstate.MAX_POOPS)
 
-    def test_neglect_makes_it_sick_and_it_never_dies(self):
-        p = self.pet()
-        p.food, p.awake_until = 0.0, self.now + 10 ** 7
-        for _ in range(40):
-            self.later(p, 12)
-        m = p.message()
-        self.assertTrue(m["sick"])
-        self.assertEqual(m["need"], "sick")
-        self.assertEqual(p.act("feed")[0], True)   # a sick pet can still be cared for
-        self.assertEqual(p.act("play", "5"), (False, "Bit is too ill"))
-        self.assertEqual(p.act("heal"), (True, ""))
-        self.assertFalse(p.message()["sick"])
-
-    def test_heal_refuses_when_well(self):
-        self.assertEqual(self.pet().act("heal"), (False, "Bit feels fine"))
-
-    def test_a_short_bad_spell_does_not_make_it_sick(self):
-        p = self.pet()
-        p.food, p.awake_until = 0.0, self.now + 10 ** 7
-        self.later(p, petstate.SICK_AFTER_H - 1)
-        self.assertFalse(p.sick)
-        self.assertEqual(p.act("feed"), (True, ""))
-        self.later(p, 1)
-        self.assertEqual(p.neglect, 0)
-
     def test_it_can_be_kept_up_and_put_down(self):
         self.hour = 23
         p = self.pet()
@@ -1216,6 +1191,214 @@ class Life(unittest.TestCase):
             p.act("pat")
         self.assertEqual(round(p.fun), 52)
 
+    def test_it_is_always_healthy(self):
+        p = self.pet()
+        p.food, p.poops = 0.0, petstate.MAX_POOPS
+        for _ in range(4):
+            self.later(p, 10)
+            p.here()
+        self.assertNotIn("sick", p.message())
+        self.assertNotEqual(p.need(), "sick")
+        p.awake_until = self.now + 3600
+        self.assertEqual(p.act("heal"), (False, "unknown action"))
+
+    def test_a_day_goes_by_and_it_grows(self):
+        p = self.pet()
+        self.assertEqual(p.message()["grown"], 0)
+        self.now += 2 * 86400
+        self.assertEqual(p.message()["grown"], 2 * petstate.GROW_PER_DAY)
+
+    def test_a_turn_alone_does_not_make_it_grow(self):
+        p = self.pet()
+        for _ in range(50):
+            p.finished()
+        self.assertEqual((p.message()["total"], p.message()["grown"]), (50, 0))
+
+    def test_tokens_pay_less_and_less_up_to_a_cap(self):
+        bonus = petstate.token_bonus
+        self.assertEqual(bonus(0), 0)
+        self.assertGreater(bonus(100_000) - bonus(0), bonus(200_000) - bonus(100_000))
+        self.assertGreater(bonus(200_000) - bonus(100_000), bonus(300_000) - bonus(200_000))
+        self.assertAlmostEqual(bonus(10_000_000), petstate.TOKEN_BONUS, places=6)
+        self.assertLessEqual(bonus(10 ** 12), petstate.TOKEN_BONUS)
+
+    def test_no_amount_of_tokens_buys_more_than_the_cap(self):
+        p, q = self.pet(), Pet(None, clock=lambda: self.now, local=self.local)
+        p.note_tokens({"2026-01-01": 10_000_000})
+        q.note_tokens({"2026-01-01": 10 ** 12})
+        self.assertEqual(p.grown(), q.grown())
+        self.assertEqual(p.grown(), int(petstate.TOKEN_BONUS))
+
+    def test_the_bonus_resets_each_day(self):
+        p = self.pet()
+        self.now += 86400
+        p.note_tokens({"2026-01-01": 10_000_000, "2026-01-02": 10_000_000})
+        self.assertEqual(p.grown(), int(1 * petstate.GROW_PER_DAY + 2 * petstate.TOKEN_BONUS))
+
+    def test_only_five_days_a_week_count(self):
+        week = [f"2026-01-{d:02}" for d in range(5, 12)]  # Monday to Sunday
+        self.now += 11 * 86400
+        every_day = Pet(None, clock=lambda: self.now, local=self.local)
+        two_off = Pet(None, clock=lambda: self.now, local=self.local)
+        every_day.counted_from = two_off.counted_from = "2026-01-05"
+        every_day.note_tokens({d: 10_000_000 for d in week})
+        two_off.note_tokens({d: 10_000_000 for d in week[:5]})
+        self.assertEqual(every_day.grown(), two_off.grown())
+
+    def test_a_week_of_days_off_earns_only_the_days(self):
+        p = self.pet()
+        self.now += 7 * 86400
+        p.here()
+        self.assertEqual(p.grown(), 7 * petstate.GROW_PER_DAY)
+
+    def test_other_machines_add_to_the_same_day(self):
+        p = self.pet()
+        p.note_tokens({"2026-01-01": 100_000})
+        p.note_tokens({"2026-01-01": 100_000}, where="box")
+        self.assertAlmostEqual(sum(p._tokens_by_day().values()), 200_000)
+
+    def test_a_days_count_never_falls(self):
+        p = self.pet()
+        p.note_tokens({"2026-01-01": 500})
+        p.note_tokens({"2026-01-01": 100})
+        self.assertEqual(p.tokens["here"]["2026-01-01"], 500)
+
+    def test_a_pet_from_before_keeps_its_level_and_counts_on(self):
+        self.path.write_text(json.dumps({"total": 147, "today": 0, "day": "2026-01-01", "born": 1.0}))
+        p = self.pet()
+        self.assertEqual(p.grown(), 147)
+        p.save()
+        self.now += 86400
+        q = self.pet()
+        q.note_tokens({"2025-12-25": 10_000_000})  # from before growth counted
+        self.assertEqual(q.grown(), 147 + petstate.GROW_PER_DAY)
+
+    def test_growth_survives_a_restart(self):
+        p = self.pet()
+        p.note_tokens({"2026-01-01": 10_000_000})
+        p.here()
+        p.save()
+        q = self.pet()
+        self.assertEqual((q.grown(), q.around), (int(petstate.TOKEN_BONUS), ["2026-01-01"]))
+
+    def test_coming_back_from_a_day_off_it_is_rested_and_glad(self):
+        p = self.pet()
+        p.here()
+        p.food, p.fun, p.energy, p.poops = 5.0, 5.0, 5.0, 3
+        self.now += 2 * 86400
+        before = p.ev
+        p.here()
+        m = p.message()
+        self.assertEqual((m["ev"], m["evk"], m["need"], m["poops"]), (before + 1, "rested", "", 0))
+        self.assertGreaterEqual((m["food"], m["fun"], m["energy"]), (70, 70, 100))
+
+    def test_it_says_hello_once_a_day(self):
+        p = self.pet()
+        p.here()
+        self.now += 2 * 86400
+        p.here()
+        before = p.ev
+        p.here()
+        p.act("here")
+        self.assertEqual(p.ev, before)
+
+    def test_longer_away_is_a_bigger_hello(self):
+        p = self.pet()
+        p.here()
+        self.now += (petstate.LONG_AWAY_DAYS + 1) * 86400
+        p.here()
+        self.assertEqual(p.evk, "welcome")
+
+    def test_a_day_with_agents_is_not_a_day_off(self):
+        p = self.pet()
+        p.here()
+        p.note_tokens({"2026-01-02": 500})
+        self.now += 2 * 86400
+        before = p.ev
+        p.here()
+        self.assertEqual(p.ev, before)
+
+    def test_coming_back_the_next_day_is_nothing_special(self):
+        p = self.pet()
+        p.here()
+        self.now += 86400
+        before = p.ev
+        p.here()
+        self.assertEqual(p.ev, before)
+
+    def test_a_new_pet_has_nothing_to_come_back_to(self):
+        p = self.pet()
+        before = p.ev
+        p.here()
+        self.assertEqual(p.ev, before)
+
+    def test_it_still_says_hello_after_working_in_the_terminal_first(self):
+        p = self.pet()
+        p.here()
+        self.now += 2 * 86400
+        p.finished()
+        before = p.ev
+        p.here()
+        self.assertEqual(p.ev, before + 1)
+
+    def test_while_you_are_away_its_needs_wait_and_it_asks_for_nothing(self):
+        p = self.pet()
+        p.food, p.awake_until = 20.0, self.now + 10 ** 8
+        p.here()
+        self.later(p, 2)
+        self.assertLess(p.food, 20)
+        food = 10.0
+        p.food = food
+        self.later(p, petstate.AWAY_AFTER_S / 3600)
+        low = p.food
+        self.later(p, 24)
+        self.assertEqual(p.food, low)
+        self.assertEqual(p.need(), "")
+
+    def test_a_finished_turn_counts_as_being_around(self):
+        p = self.pet()
+        p.food, p.awake_until = 90.0, self.now + 10 ** 8
+        self.later(p, petstate.AWAY_AFTER_S / 3600 + 1)
+        p.finished()
+        food = p.food
+        self.later(p, 1)
+        self.assertLess(p.food, food)
+
+    def birthday_pet(self, day=1):
+        local = lambda t: time.struct_time((2026, 2, day, 12, 0, 0, 6, 32, 0))
+        p = Pet(None, clock=lambda: self.now, local=local)
+        p.born = self.now - 5 * 86400
+        return p
+
+    def test_the_first_of_the_month_is_its_birthday(self):
+        self.assertTrue(self.birthday_pet().message()["birthday"])
+        self.assertFalse(self.birthday_pet(day=2).message()["birthday"])
+
+    def test_the_day_it_is_born_is_not_a_birthday(self):
+        p = self.birthday_pet()
+        p.born = self.now - 3600
+        self.assertFalse(p.birthday())
+
+    def test_it_says_happy_birthday_once(self):
+        p = self.birthday_pet()
+        before = p.ev
+        p.here()
+        p.here()
+        self.assertEqual((p.ev, p.evk), (before + 1, "birthday"))
+
+    def test_a_birthday_earns_no_growth_and_gives_no_top_up(self):
+        p = self.birthday_pet()
+        p.food = 10.0
+        before = p.grown()
+        p.here()
+        self.assertEqual((p.grown(), p.food), (before, 10.0))
+
+    def test_missing_a_birthday_costs_nothing(self):
+        p = self.birthday_pet(day=2)
+        p.here()
+        self.assertEqual(p.evk, "")
+        self.assertEqual(p.need(), "")
+
     def test_unknown_action_changes_nothing(self):
         self.assertEqual(self.pet().act("allow"), (False, "unknown action"))
 
@@ -1235,8 +1418,7 @@ class Life(unittest.TestCase):
         self.now += 30 * 86400
         q = self.pet()
         q.tick()
-        self.assertAlmostEqual(q.food, 100 - 6 * 12, places=3)
-        self.assertFalse(q.sick)
+        self.assertEqual(q.food, 100)  # nobody's been around, so it waited
 
     def test_the_old_file_format_keeps_its_counts(self):
         self.path.write_text(json.dumps({"total": 9, "today": 4, "day": "2026-01-01"}))
@@ -1260,9 +1442,7 @@ class Life(unittest.TestCase):
 
     def test_needs_are_ranked(self):
         p = self.pet()
-        p.sick, p.food, p.poops = True, 0.0, 1
-        self.assertEqual(p.need(), "sick")
-        p.sick = False
+        p.food, p.poops = 0.0, 1
         self.assertEqual(p.need(), "food")
         p.food = 80.0
         self.assertEqual(p.need(), "mess")

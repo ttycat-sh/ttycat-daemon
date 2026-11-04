@@ -38,6 +38,7 @@ from codex_threads import CodexThreads
 from flasher import Flasher
 from look import Look
 from petstate import PET_FILE, Pet
+import token_days
 from sources import DemoSource, Fleet, HerdrSource
 
 CTL_PATH = Path.home() / ".ttycat" / "ctl.sock"
@@ -45,7 +46,7 @@ LOCK_PATH = Path.home() / ".ttycat" / "daemon.lock"
 ALREADY_RUNNING = 3  # exit status the Mac app looks for
 # All the app may do. An answer needs the exact prompt's rev: see approvals.Hub.answer.
 APP_ACTIONS = {"open", "seen", "allow", "answer", "deny",
-               "pet-feed", "pet-clean", "pet-heal", "pet-sleep", "pet-pat", "pet-play"}
+               "pet-feed", "pet-clean", "pet-sleep", "pet-pat", "pet-play", "pet-here"}
 APP_ACTIVITY_ROWS = 30
 MAX_CTL_REQUEST = 256 * 1024
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
@@ -243,6 +244,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         board.dim = m.get("on") is True
                     elif t == "touch":
                         log("touch", m.get("x"), m.get("y"))
+                        source.act("pet-here", "", "")
                     elif t == "watch":
                         watching = m.get("id")
                         next_beat = 0
@@ -514,6 +516,7 @@ def main():
         try:
             hub = Hub(HOOK_SOCK)
             pet = Pet()
+            token_days.watch(pet, log)
             remotes = api.machines(a, pet, a.focus_app) if api.machines else []
             in_herdr = HubScope(hub, lambda pane: not is_session_pane(pane))
             local = HerdrSource(focus_app=a.focus_app, only_panes=a.only_pane, hub=in_herdr, pet=pet)

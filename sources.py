@@ -91,8 +91,9 @@ class DemoSource:
         ]
         self.sessions = self.all
         # its own pet, kept in memory: demo mode doesn't touch the real one
-        self.pet_stats = Pet(path=None, clock=time.time, local=lambda t: time.struct_time((2026, 1, 1, 12, 0, 0, 3, 1, 0)))
+        self.pet_stats = Pet(path=None, clock=time.time, local=lambda t: time.struct_time((2026, 1, 2, 12, 0, 0, 4, 2, 0)))
         self.pet_stats.total, self.pet_stats.today, self.pet_stats.born = 14, 5, time.time() - 3 * 86400
+        self.pet_stats.head_start = 14
 
     def scene(self, name):
         """Sample states for the design's other boards."""
@@ -133,22 +134,23 @@ class DemoSource:
             self.sessions = [dict(self.all[0], id=f"m{i}", rev=f"many{i}", body=f"echo {i} " + "x" * 950) for i in range(8)]
         elif name.startswith("pet-"):  # the pet's other states, for testing
             p, what = self.pet_stats, name[4:]
-            p.sick, p.poops, p.nap_until, p.awake_until = False, 0, 0, 0
+            p.poops, p.nap_until, p.awake_until = 0, 0, 0
+            p.local = lambda t: time.struct_time((2026, 1, 1 if what == "birthday" else 2, 12, 0, 0, 3, 1, 0))
             p.food, p.fun, p.energy = 70.0, 70.0, 80.0
             if what == "hungry":
                 p.food = 10.0
             elif what == "mess":
                 p.poops = 2
-            elif what == "sick":
-                p.sick, p.food, p.poops = True, 0.0, 3
             elif what == "bored":
                 p.fun = 10.0
+            elif what == "old":
+                p.born = time.time() - 100 * 86400
             elif what == "tired":
                 p.energy = 8.0
             elif what == "asleep":
                 p.nap_until = time.time() + 600
             elif what.startswith("lv"):
-                p.total = 3 * (int(what[2:]) - 1) ** 2
+                p.total = p.head_start = 3 * (int(what[2:]) - 1) ** 2
         elif name.startswith("working-"):  # that many agents at work, nothing else
             self.sessions = [dict(id=f"w{i}", a="CC", n="Claude", p=f"project-{i}", s="working", age=30 + i, d="Edit: Cart.tsx")
                              for i in range(int(name[8:]))]
