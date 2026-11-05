@@ -47,7 +47,7 @@ LOCK_PATH = Path.home() / ".ttycat" / "daemon.lock"
 ALREADY_RUNNING = 3  # exit status the Mac app looks for
 # All the app may do. An answer needs the exact prompt's rev: see approvals.Hub.answer.
 APP_ACTIONS = {"open", "seen", "allow", "answer", "deny",
-               "pet-feed", "pet-clean", "pet-sleep", "pet-pat", "pet-play", "pet-here"}
+               "pet-pat", "pet-here"}
 APP_ACTIVITY_ROWS = 30
 MAX_CTL_REQUEST = 256 * 1024
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"

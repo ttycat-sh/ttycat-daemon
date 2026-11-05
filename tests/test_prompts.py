@@ -1099,109 +1099,25 @@ class Life(unittest.TestCase):
         self.now += hours * 3600
         p.tick()
 
-    def test_it_gets_hungry_and_bored_awake(self):
+    def test_nothing_is_left_of_looking_after_it(self):
+        m = self.pet().message()
+        self.assertEqual(set(m), {"total", "grown", "today", "birthday", "asleep", "age", "name", "ev", "evk"})
         p = self.pet()
-        p.food, p.fun = 50.0, 50.0
-        self.later(p, 5)
-        self.assertAlmostEqual(p.food, 20, places=3)
-        self.assertAlmostEqual(p.fun, 25, places=3)
+        for action in ("feed", "clean", "play", "sleep"):
+            self.assertFalse(p.act(action)[0], action)
 
-    def test_sleep_restores_energy_and_slows_hunger(self):
+    def test_a_pat_is_a_heart_and_nothing_more(self):
+        p = self.pet()
+        before, grown = p.message()["ev"], p.grown()
+        self.assertTrue(p.act("pat")[0])
+        m = p.message()
+        self.assertEqual((m["ev"], m["evk"], p.grown(), m["total"]), (before + 1, "heart", grown, 0))
+
+    def test_it_sleeps_at_night(self):
         self.hour = 23
-        p = self.pet()
-        p.food, p.energy = 50.0, 10.0
-        self.later(p, 4)
-        self.assertAlmostEqual(p.food, 42, places=3)
-        self.assertAlmostEqual(p.energy, 70, places=3)
-        self.assertTrue(p.message()["asleep"])
-
-    def test_a_turn_earns_a_snack_and_a_snack_fills_more_than_rice(self):
-        p = self.pet()
-        p.snacks, p.food = 0, 10.0
-        p.finished()
-        self.assertEqual((p.snacks, p.total, p.today), (1, 1, 1))
-        self.assertEqual(p.act("feed"), (True, ""))
-        self.assertEqual((p.snacks, round(p.food)), (0, 40))
-        self.assertEqual(p.act("feed"), (True, ""))  # the pantry's empty: it still gets fed
-        self.assertEqual((p.snacks, round(p.food)), (0, 50))
-
-    def test_it_refuses_food_when_full(self):
-        p = self.pet()
-        p.food = 96.0
-        self.assertEqual(p.act("feed"), (False, "Bit is full"))
-
-    def test_messes_pile_up_and_get_cleaned(self):
-        p = self.pet()
-        self.assertEqual(p.act("clean"), (False, "already clean"))
-        p.food = 100.0
-        self.later(p, petstate.POOP_EVERY_H + 0.1)
-        self.assertEqual(p.poops, 1)
-        self.assertEqual(p.need(), "mess")
-        self.assertEqual(p.act("clean"), (True, ""))
-        self.assertEqual(p.poops, 0)
-
-    def test_messes_stop_at_the_limit(self):
-        p = self.pet()
-        for _ in range(6):
-            p.food = 100.0
-            self.hour = 12
-            self.later(p, 1)
-            p.poops = min(petstate.MAX_POOPS, p.poops + 1)
-        self.later(p, 11)
-        self.assertLessEqual(p.poops, petstate.MAX_POOPS)
-
-    def test_it_can_be_kept_up_and_put_down(self):
-        self.hour = 23
-        p = self.pet()
-        self.assertEqual(p.act("feed"), (False, "Bit is asleep"))
-        p.act("sleep")
-        self.assertFalse(p.message()["asleep"])
-        self.assertEqual(p.act("feed")[0], True)
-        self.hour, self.now = 12, self.now
-        q = self.pet()
-        q.act("sleep")
-        self.assertTrue(q.message()["asleep"])
-        q.act("sleep")
-        self.assertFalse(q.message()["asleep"])
-
-    def test_a_nap_ends_when_it_is_rested(self):
-        p = self.pet()
-        p.energy = 90.0
-        p.act("sleep")
-        self.later(p, 1)
-        self.assertEqual(p.nap_until, 0)
-        self.assertFalse(p.message()["asleep"])
-
-    def test_play_helps_fun_costs_energy_and_keeps_the_best_score(self):
-        p = self.pet()
-        p.fun, p.energy, p.food = 20.0, 50.0, 50.0
-        self.assertEqual(p.act("play", "5"), (True, ""))
-        self.assertEqual((round(p.fun), round(p.energy), round(p.food), p.best), (50, 42, 46, 5))
-        p.act("play", "2")
-        self.assertEqual(p.best, 5)
-
-    def test_a_bad_score_counts_as_zero(self):
-        p = self.pet()
-        self.assertEqual(p.act("play", "lots")[0], True)
-        self.assertEqual(p.best, 0)
-
-    def test_patting_is_limited_so_it_cannot_replace_play(self):
-        p = self.pet()
-        p.fun = 50.0
-        for _ in range(20):
-            p.act("pat")
-        self.assertEqual(round(p.fun), 52)
-
-    def test_it_is_always_healthy(self):
-        p = self.pet()
-        p.food, p.poops = 0.0, petstate.MAX_POOPS
-        for _ in range(4):
-            self.later(p, 10)
-            p.here()
-        self.assertNotIn("sick", p.message())
-        self.assertNotEqual(p.need(), "sick")
-        p.awake_until = self.now + 3600
-        self.assertEqual(p.act("heal"), (False, "unknown action"))
+        self.assertTrue(self.pet().message()["asleep"])
+        self.hour = 12
+        self.assertFalse(self.pet().message()["asleep"])
 
     def test_a_day_goes_by_and_it_grows(self):
         p = self.pet()
@@ -1285,13 +1201,11 @@ class Life(unittest.TestCase):
     def test_coming_back_from_a_day_off_it_is_rested_and_glad(self):
         p = self.pet()
         p.here()
-        p.food, p.fun, p.energy, p.poops = 5.0, 5.0, 5.0, 3
         self.now += 2 * 86400
         before = p.ev
         p.here()
         m = p.message()
-        self.assertEqual((m["ev"], m["evk"], m["need"], m["poops"]), (before + 1, "rested", "", 0))
-        self.assertGreaterEqual((m["food"], m["fun"], m["energy"]), (70, 70, 100))
+        self.assertEqual((m["ev"], m["evk"]), (before + 1, "rested"))
 
     def test_it_says_hello_once_a_day(self):
         p = self.pet()
@@ -1342,28 +1256,12 @@ class Life(unittest.TestCase):
         p.here()
         self.assertEqual(p.ev, before + 1)
 
-    def test_while_you_are_away_its_needs_wait_and_it_asks_for_nothing(self):
-        p = self.pet()
-        p.food, p.awake_until = 20.0, self.now + 10 ** 8
-        p.here()
-        self.later(p, 2)
-        self.assertLess(p.food, 20)
-        food = 10.0
-        p.food = food
-        self.later(p, petstate.AWAY_AFTER_S / 3600)
-        low = p.food
-        self.later(p, 24)
-        self.assertEqual(p.food, low)
-        self.assertEqual(p.need(), "")
-
     def test_a_finished_turn_counts_as_being_around(self):
         p = self.pet()
-        p.food, p.awake_until = 90.0, self.now + 10 ** 8
-        self.later(p, petstate.AWAY_AFTER_S / 3600 + 1)
+        self.now += 5 * 86400
         p.finished()
-        food = p.food
-        self.later(p, 1)
-        self.assertLess(p.food, food)
+        self.assertEqual(p.seen_at, self.now)
+        self.assertEqual(p.around[-1], p._date().isoformat())
 
     def birthday_pet(self, day=1):
         local = lambda t: time.struct_time((2026, 2, day, 12, 0, 0, 6, 32, 0))
@@ -1387,18 +1285,16 @@ class Life(unittest.TestCase):
         p.here()
         self.assertEqual((p.ev, p.evk), (before + 1, "birthday"))
 
-    def test_a_birthday_earns_no_growth_and_gives_no_top_up(self):
+    def test_a_birthday_earns_no_growth(self):
         p = self.birthday_pet()
-        p.food = 10.0
         before = p.grown()
         p.here()
-        self.assertEqual((p.grown(), p.food), (before, 10.0))
+        self.assertEqual(p.grown(), before)
 
     def test_missing_a_birthday_costs_nothing(self):
         p = self.birthday_pet(day=2)
         p.here()
         self.assertEqual(p.evk, "")
-        self.assertEqual(p.need(), "")
 
     def test_unknown_action_changes_nothing(self):
         self.assertEqual(self.pet().act("allow"), (False, "unknown action"))
@@ -1406,25 +1302,15 @@ class Life(unittest.TestCase):
     def test_it_survives_a_restart(self):
         p = self.pet()
         p.finished()
-        p.act("feed")
         p.rename("Pixel")
         q = self.pet()
-        self.assertEqual((q.total, q.snacks, q.name), (1, p.snacks, "Pixel"))
+        self.assertEqual((q.total, q.name), (1, "Pixel"))
         self.assertEqual(q.message()["name"], "Pixel")
-
-    def test_time_off_is_capped(self):
-        p = self.pet()
-        p.food, p.awake_until = 100.0, self.now + 10 ** 8
-        p.save()
-        self.now += 30 * 86400
-        q = self.pet()
-        q.tick()
-        self.assertEqual(q.food, 100)  # nobody's been around, so it waited
 
     def test_the_old_file_format_keeps_its_counts(self):
         self.path.write_text(json.dumps({"total": 9, "today": 4, "day": "2026-01-01"}))
         m = self.pet().message()
-        self.assertEqual((m["total"], m["today"], m["snacks"]), (9, 4, petstate.STARTING_SNACKS))
+        self.assertEqual((m["total"], m["today"]), (9, 4))
 
     def test_today_rolls_over(self):
         self.path.write_text(json.dumps({"total": 9, "today": 4, "day": "2001-01-01"}))
@@ -1441,19 +1327,6 @@ class Life(unittest.TestCase):
         p.rename("   ")
         self.assertEqual(p.name, "Bitty the L")
 
-    def test_needs_are_ranked(self):
-        p = self.pet()
-        p.food, p.poops = 0.0, 1
-        self.assertEqual(p.need(), "food")
-        p.food = 80.0
-        self.assertEqual(p.need(), "mess")
-        p.poops, p.energy = 0, 10.0
-        self.assertEqual(p.need(), "tired")
-        p.energy, p.fun = 80.0, 10.0
-        self.assertEqual(p.need(), "bored")
-        p.fun = 80.0
-        self.assertEqual(p.need(), "")
-
     def source(self, *states):
         src = FakeHerdr(pet=Pet(self.path), hub=FakeHub(), screen=TRUST)
         for st in states:
@@ -1461,7 +1334,7 @@ class Life(unittest.TestCase):
             src.row()
         return src.pet()["total"]
 
-    def test_a_finished_turn_feeds_it(self):
+    def test_a_finished_turn_is_counted(self):
         self.assertEqual(self.source("working", "done"), 1)
         self.assertEqual(self.source("working", "idle"), 2)
 
@@ -1471,57 +1344,15 @@ class Life(unittest.TestCase):
         denied = self.source("working", "blocked", "idle")
         self.assertEqual((allowed, denied), (1, 1))
 
-    def test_a_prompt_on_its_own_does_not_feed_it(self):
+    def test_a_prompt_on_its_own_is_not_counted(self):
         self.assertEqual(self.source("working", "blocked"), 0)
-
-    def test_the_app_can_look_after_the_pet(self):
-        p = Pet(self.path)
-        p.food, p.nap_until, p.awake_until = 10.0, 0, time.time() + 1000
-        fleet = Fleet(FakeHerdr(pet=p, hub=FakeHub()), [], start=False)
-        reply = ttycatd.app_action(fleet, {"a": "pet-feed", "id": "", "rev": ""})
-        self.assertEqual(reply, {"ok": True, "msg": ""})
-        self.assertGreater(p.food, 10)
-        reply = ttycatd.app_action(fleet, {"a": "pet-play", "id": "", "rev": "12"})
-        self.assertTrue(reply["ok"])
-        self.assertEqual(p.best, 12)
-
-    def test_care_is_announced_to_both_views(self):
-        p = Pet(self.path)
-        p.food, p.nap_until, p.awake_until = 10.0, 0, time.time() + 1000
-        before = p.message()["ev"]
-        self.assertEqual(p.message()["evk"], "")
-        self.assertTrue(p.act("feed")[0])
-        after = p.message()
-        self.assertEqual((after["ev"], after["evk"]), (before + 1, "eat"))
-        self.assertTrue(p.act("pat")[0])
-        self.assertEqual(p.message()["evk"], "heart")
-
-    def test_a_refused_action_announces_nothing(self):
-        p = Pet(self.path)
-        p.poops, p.nap_until, p.awake_until = 0, 0, time.time() + 1000
-        before = p.message()["ev"]
-        self.assertFalse(p.act("clean")[0])
-        self.assertEqual(p.message()["ev"], before)
-
-    def test_sleeping_is_news_but_has_no_reaction(self):
-        p = Pet(self.path)
-        before = p.message()["ev"]
-        self.assertTrue(p.act("sleep")[0])
-        self.assertEqual((p.message()["ev"], p.message()["evk"]), (before + 1, ""))
 
     def test_the_app_cant_do_anything_else_to_the_pet(self):
         p = Pet(self.path)
         fleet = Fleet(FakeHerdr(pet=p, hub=FakeHub()), [], start=False)
-        for action in ("pet-reward", "pet-", "pet-rename"):
+        for action in ("pet-reward", "pet-", "pet-rename", "pet-feed", "pet-clean", "pet-play", "pet-sleep"):
             reply = ttycatd.app_action(fleet, {"a": action, "id": "", "rev": ""})
             self.assertFalse(reply["ok"], action)
-
-    def test_care_goes_to_the_pet_whatever_the_session(self):
-        p = Pet(self.path)
-        p.food, p.nap_until, p.awake_until = 10.0, 0, time.time() + 1000
-        fleet = Fleet(FakeHerdr(pet=p, hub=FakeHub()), [], start=False)
-        self.assertEqual(fleet.act("pet-feed", "", ""), (True, ""))
-        self.assertGreater(p.food, 10)
 
 
 class HookInstall(unittest.TestCase):
