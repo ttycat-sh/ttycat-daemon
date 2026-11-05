@@ -6,12 +6,13 @@ ttycat's own firmware may approve without being asked about. Any other device ca
 going on, open a session and Deny, because those can only stop an agent. Approving needs the
 person to turn it on, for that device, in Setup.
 
-A device is known by the name it gives in `hello`. ttycat's firmware gives a plain version number;
-anything else is someone's own. New firmware under a new name gets asked about again.
+A device is known by the name it gives in `hello`. Only a release build gives a plain version
+number (FW_NAME in firmware/main/model.h). Anything built from source gives a name that comes from
+its source, so it counts as someone's own, and each change gets asked about again.
 
 This guards against accidents, such as a lamp with a button or an agent's overeager firmware. It
-can't stop a device built to lie about its name, and a build that keeps the official version
-number counts as official. Anything running as you can already answer prompts: see the README.
+can't stop a device built to lie about its name. Anything running as you can already answer
+prompts: see the README.
 """
 from __future__ import annotations
 

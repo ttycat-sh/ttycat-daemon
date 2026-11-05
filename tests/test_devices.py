@@ -33,7 +33,7 @@ class Names(unittest.TestCase):
     def test_only_a_plain_version_is_ours(self):
         for ours in ("0.9.1", "1", "0.10.0", None):
             self.assertFalse(is_custom(ours), ours)
-        for theirs in ("my-lamp-1.0", "dev", "0.9.1-mine", "1..2", "+1.2", "٣.٤"):
+        for theirs in ("custom-0.9.1-7e297979", "my-lamp-1.0", "dev", "0.9.1-mine", "1..2", "+1.2", "٣.٤"):
             self.assertTrue(is_custom(theirs), theirs)
 
     def test_a_name_is_made_safe_to_keep_and_show(self):
