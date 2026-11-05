@@ -217,7 +217,7 @@ class TokenDays:
 
 def watch(pet, log=print):
     """Tells the pet what's been used, for as long as the daemon runs."""
-    days = TokenDays(pet.counted_from)
+    days = TokenDays(pet.born_day().isoformat())
 
     def loop():
         while True:

@@ -93,7 +93,7 @@ class DemoSource:
         # its own pet, kept in memory: demo mode doesn't touch the real one
         self.pet_stats = Pet(path=None, clock=time.time, local=lambda t: time.struct_time((2026, 1, 2, 12, 0, 0, 4, 2, 0)))
         self.pet_stats.total, self.pet_stats.today, self.pet_stats.born = 14, 5, time.time() - 3 * 86400
-        self.pet_stats.head_start = 14
+        self.pet_stats.grown = lambda: 14  # its clock is pinned to one day, so it couldn't grow on its own
 
     def scene(self, name):
         """Sample states for the design's other boards."""
@@ -138,7 +138,8 @@ class DemoSource:
             if what == "old":
                 p.born = time.time() - 100 * 86400
             elif what.startswith("lv"):
-                p.total = p.head_start = 3 * (int(what[2:]) - 1) ** 2
+                p.total = 3 * (int(what[2:]) - 1) ** 2
+                p.grown = lambda total=p.total: total
         elif name.startswith("working-"):  # that many agents at work, nothing else
             self.sessions = [dict(id=f"w{i}", a="CC", n="Claude", p=f"project-{i}", s="working", age=30 + i, d="Edit: Cart.tsx")
                              for i in range(int(name[8:]))]

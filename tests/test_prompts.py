@@ -1157,7 +1157,7 @@ class Life(unittest.TestCase):
         self.now += 11 * 86400
         every_day = Pet(None, clock=lambda: self.now, local=self.local)
         two_off = Pet(None, clock=lambda: self.now, local=self.local)
-        every_day.counted_from = two_off.counted_from = "2026-01-05"
+        every_day.born = two_off.born = 1_000_000.0 + 4 * 86400  # 2026-01-05
         every_day.note_tokens({d: 10_000_000 for d in week})
         two_off.note_tokens({d: 10_000_000 for d in week[:5]})
         self.assertEqual(every_day.grown(), two_off.grown())
@@ -1180,15 +1180,11 @@ class Life(unittest.TestCase):
         p.note_tokens({"2026-01-01": 100})
         self.assertEqual(p.tokens["here"]["2026-01-01"], 500)
 
-    def test_a_pet_from_before_keeps_its_level_and_counts_on(self):
-        self.path.write_text(json.dumps({"total": 147, "today": 0, "day": "2026-01-01", "born": 1.0}))
+    def test_tokens_from_before_it_was_born_dont_count(self):
         p = self.pet()
-        self.assertEqual(p.grown(), 147)
-        p.save()
         self.now += 86400
-        q = self.pet()
-        q.note_tokens({"2025-12-25": 10_000_000})  # from before growth counted
-        self.assertEqual(q.grown(), 147 + petstate.GROW_PER_DAY)
+        p.note_tokens({"2025-12-25": 10_000_000})
+        self.assertEqual(p.grown(), petstate.GROW_PER_DAY)
 
     def test_growth_survives_a_restart(self):
         p = self.pet()

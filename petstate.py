@@ -44,10 +44,6 @@ class Pet:
         self.total = int(d.get("total", 0))
         self.today = int(d.get("today", 0))
         self.day = str(d.get("day", ""))
-        today = time.strftime("%Y-%m-%d", local(now))
-        # A pet from before growth worked this way keeps what its level came from, and counts on from today.
-        self.counted_from = str(d.get("counted_from", today))
-        self.head_start = int(d.get("head_start", self.total))
         self.tokens = d["tokens"] if isinstance(d.get("tokens"), dict) else {}  # {where: {day: tokens}}
         self.around = [str(x) for x in d["around"]] if isinstance(d.get("around"), list) else []  # days someone was
         self.seen_at = float(d.get("seen_at", now))
@@ -70,7 +66,7 @@ class Pet:
         self.saved_at = self.clock()
         if not self.path:
             return
-        keys = ("name", "born", "total", "today", "day", "counted_from", "head_start", "tokens", "around", "seen_at", "greeted")
+        keys = ("name", "born", "total", "today", "day", "tokens", "around", "seen_at", "greeted")
         try:
             tmp = self.path.with_name(self.path.name + ".tmp")
             tmp.write_text(json.dumps({k: getattr(self, k) for k in keys}))
@@ -105,6 +101,9 @@ class Pet:
     def _date(self) -> date:
         return date(*self.local(self.clock())[:3])
 
+    def born_day(self) -> date:
+        return date(*self.local(self.born)[:3])
+
     def _around(self):
         self.seen_at = self.clock()
         today = self._date().isoformat()
@@ -127,12 +126,9 @@ class Pet:
         return total
 
     def grown(self) -> int:
-        """What its level comes from. Goes up with each day, and with each day's tokens."""
+        """What its level comes from: each day since it was born, and each day's tokens."""
         with self.lock:
-            try:
-                start = date.fromisoformat(self.counted_from)
-            except ValueError:
-                return self.head_start
+            start = self.born_day()
             weeks: dict[tuple, list] = {}
             for day, tokens in self._tokens_by_day().items():
                 try:
@@ -142,7 +138,7 @@ class Pet:
                 if when >= start:
                     weeks.setdefault(tuple(when.isocalendar())[:2], []).append(token_bonus(tokens))
             earned = sum(sum(sorted(week, reverse=True)[:TOKEN_DAYS_PER_WEEK]) for week in weeks.values())
-            return self.head_start + int(max(0, (self._date() - start).days) * GROW_PER_DAY + earned)
+            return int(max(0, (self._date() - start).days) * GROW_PER_DAY + earned)
 
     def _days_off(self) -> int:
         """Whole days since agents last ran or anyone was here, up to today."""
