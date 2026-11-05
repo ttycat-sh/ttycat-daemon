@@ -164,6 +164,14 @@ class Flashing(unittest.TestCase):
         self.assertEqual(f.state, "idle")
         self.assertTrue(self.start(f, fw=None, unknown=True)[0])
 
+    def test_custom_firmware_is_never_overwritten_without_agreement(self):
+        f = self.flasher(GOOD)
+        ok, msg = self.start(f, fw="my-lamp-1.0")
+        self.assertFalse(ok)
+        self.assertIn("my-lamp-1.0", msg)
+        self.assertEqual(f.state, "idle")
+        self.assertTrue(self.start(f, fw="my-lamp-1.0", unknown=True)[0])
+
     def test_no_board_no_flash(self):
         f = self.flasher(GOOD)
         self.assertFalse(f.start(str(self.image.path), None, "0.6.1", False)[0])

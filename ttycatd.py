@@ -37,6 +37,7 @@ from claude_sessions import ClaudeSessions, RunningAgents, is_session_pane
 from codex_threads import CodexThreads
 from flasher import Flasher
 from look import Look
+from devices import NOT_ALLOWED, Devices, clean_name, is_custom
 from petstate import PET_FILE, Pet
 import token_days
 from sources import DemoSource, Fleet, HerdrSource
@@ -186,6 +187,7 @@ def rgb565_to_png(path: str, frame: bytes, w=240, h=320):
 def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | None = None):
     api = api or plugins.Api()
     look = Look()
+    devices = Devices()
     board = Board(port)
     flasher = Flasher(log)
     CTL_PATH.parent.mkdir(mode=0o700, exist_ok=True)
@@ -236,7 +238,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                             shot_client.close()
                             shot_client, shot_parts = None, {}
                     elif t == "hello" and time.monotonic() >= silent_until:
-                        board.fw = m.get("fw") or board.fw
+                        board.fw = clean_name(m.get("fw")) or board.fw
                         board.send({"t": "hello"})
                         flasher.board_said(board.fw)
                         next_beat = 0
@@ -249,7 +251,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         watching = m.get("id")
                         next_beat = 0
                     elif t == "act":
-                        ok, msg = source.act(m.get("a", ""), m.get("id", ""), m.get("rev", ""), m.get("ans"))
+                        ok, msg = device_action(source, board.fw, devices, m)
                         log("action", m.get("a"), m.get("id"), "ok" if ok else f"refused: {msg}")
                         board.send(state_message(source, watching, look))
                         board.send({"t": "ack", "ok": ok, "msg": msg})
@@ -274,12 +276,14 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         pass
                     conn.close()
                     continue
-                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look"):  # the Mac app
+                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device"):  # the Mac app
                     if cmd["t"] == "status":
-                        reply = status_message(source, board, flasher, look)
+                        reply = status_message(source, board, flasher, look, devices)
                     elif cmd["t"] == "look":
                         reply = look.set(cmd.get("skin"), cmd.get("accent"))
                         next_beat = 0
+                    elif cmd["t"] == "device":
+                        reply = device_setting(board, devices, cmd)
                     elif cmd["t"] == "flash":
                         port = board.path if board.fd is not None else None
                         ok, msg = flasher.start(str(cmd.get("dir", "")), port, board.fw, cmd.get("unknown") is True)
@@ -358,7 +362,8 @@ def state_message(source, watching: str | None, look: Look | None = None) -> dic
     return msg
 
 
-def status_message(source, board: Board, flasher: Flasher | None = None, look: Look | None = None) -> dict:
+def status_message(source, board: Board, flasher: Flasher | None = None, look: Look | None = None,
+                   devices: Devices | None = None) -> dict:
     """What the Mac app shows. Reading it changes nothing."""
     msg = state_message(source, None, look)
     msg.pop("look", None)
@@ -367,12 +372,30 @@ def status_message(source, board: Board, flasher: Flasher | None = None, look: L
     desk = source.desk() if hasattr(source, "desk") else {}
     msg["s"] = [{**row, **desk.get(row["id"], {})} for row in msg["s"]]
     msg.update(t="status", pid=os.getpid(), term=getattr(source, "focus_app", None),
-               board={"connected": board.fd is not None, "port": board.path, "fw": board.fw, "dim": board.dim},
+               board={"connected": board.fd is not None, "port": board.path, "fw": board.fw, "dim": board.dim,
+                      "approves": (devices or Devices()).may_approve(board.fw)},
                machines=[{"host": r.host, "up": r.reachable and not r.stale, "answers": bool(getattr(r, "tunnel", None) and r.tunnel.up)}
                          for r in getattr(source, "remotes", ())])
     if flasher:
         msg["flash"] = flasher.info()
     return msg
+
+
+def device_action(source, fw: str | None, devices: Devices, m: dict) -> tuple[bool, str]:
+    """What the device on the USB port asked for. Only one that's allowed to can approve: see devices.py."""
+    action = m.get("a", "")
+    if not devices.permits(action, fw):
+        return False, NOT_ALLOWED
+    return source.act(action, m.get("id", ""), m.get("rev", ""), m.get("ans"))
+
+
+def device_setting(board: Board, devices: Devices, cmd: dict) -> dict:
+    """The person's choice in Setup, for the device that's plugged in now and no other."""
+    fw = cmd.get("fw")
+    if board.fd is None or fw != board.fw or not is_custom(fw):
+        return {"ok": False, "msg": "that device isn't connected"}
+    devices.set_approve(fw, cmd.get("approve") is True)
+    return {"ok": True, "msg": ""}
 
 
 def app_action(source, cmd: dict) -> dict:

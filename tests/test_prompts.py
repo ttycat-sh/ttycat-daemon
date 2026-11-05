@@ -935,7 +935,7 @@ class MacApp(unittest.TestCase):
         board = ttycatd.Board(None)
         reply = ttycatd.status_message(self.Recording(), board)
         self.assertEqual(reply["pid"], os.getpid())
-        self.assertEqual(reply["board"], {"connected": False, "port": None, "fw": None, "dim": False})
+        self.assertEqual(reply["board"], {"connected": False, "port": None, "fw": None, "dim": False, "approves": False})
         self.assertEqual(reply["s"], [{"id": "p1", "s": "working"}])
         self.assertEqual(reply["machines"], [])
         self.assertNotIn("hist", reply)

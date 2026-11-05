@@ -19,6 +19,8 @@ import sys
 import time
 from pathlib import Path
 
+from devices import is_custom
+
 CHIP = "esp32c5"  # esptool refuses to write if the board turns out to be another chip
 BAUD = "460800"
 FLASH_TIMEOUT_S = 180
@@ -108,13 +110,16 @@ class Flasher:
 
     def start(self, folder: str, port: str | None, fw: str | None, unknown_ok: bool) -> tuple[bool, str]:
         """`fw` is what the board on `port` said it runs. A port that hasn't said anything could
-        be any other device, so it needs `unknown_ok`: the person was told which port it is."""
+        be any other device, and one running its own firmware would lose it, so both need
+        `unknown_ok`: the person was told what would be overwritten."""
         if self.busy:
             return False, "already updating"
         if not port:
             return False, "no board connected"
         if fw is None and not unknown_ok:
             return False, "the board hasn't said what it is"
+        if is_custom(fw) and not unknown_ok:
+            return False, f"it runs {fw}, which this would erase"
         tool = self.tool()
         if not tool:
             return False, "esptool not found"
