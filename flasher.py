@@ -21,7 +21,6 @@ from pathlib import Path
 
 from devices import is_custom
 
-CHIP = "esp32c5"  # esptool refuses to write if the board turns out to be another chip
 BAUD = "460800"
 FLASH_TIMEOUT_S = 180
 COMES_BACK_S = 30
@@ -52,8 +51,9 @@ def read_image(folder: str) -> dict:
         version, files, flash = manifest["version"], manifest["files"], manifest["flash"]
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise ValueError(f"no usable firmware image: {e}") from e
-    if manifest.get("chip") != CHIP:
-        raise ValueError(f"this image is for {manifest.get('chip')}, not {CHIP}")
+    chip = manifest.get("chip")  # esptool refuses to write if the board turns out to be another chip
+    if not isinstance(chip, str) or not re.fullmatch(r"esp32[a-z0-9]*", chip):
+        raise ValueError(f"no usable firmware image: chip {chip}")
     if not isinstance(version, str) or not version or not isinstance(files, list) or not files:
         raise ValueError("no usable firmware image: nothing in it")
     if not isinstance(flash, list) or not all(isinstance(a, str) and re.fullmatch(r"[\w-]+", a) for a in flash):
@@ -76,7 +76,7 @@ def read_image(folder: str) -> dict:
         if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
             raise ValueError(f"damaged image: {name}")
         checked.append({"offset": offset, "path": str(path), "size": size})
-    return {"version": version, "flash": flash, "files": checked}
+    return {"version": version, "chip": chip, "board": manifest.get("board"), "flash": flash, "files": checked}
 
 
 class Flasher:
@@ -108,10 +108,11 @@ class Flasher:
     def info(self) -> dict:
         return {"state": self.state, "pct": self.pct, "msg": self.msg, "to": self.to, "tool": self.tool() is not None}
 
-    def start(self, folder: str, port: str | None, fw: str | None, unknown_ok: bool) -> tuple[bool, str]:
+    def start(self, folder: str, port: str | None, fw: str | None, unknown_ok: bool, board: str | None = None) -> tuple[bool, str]:
         """`fw` is what the board on `port` said it runs. A port that hasn't said anything could
         be any other device, and one running its own firmware would lose it, so both need
-        `unknown_ok`: the person was told what would be overwritten."""
+        `unknown_ok`: the person was told what would be overwritten. `board` is which board it
+        says it is: firmware for another would leave it with a dark screen, even on the same chip."""
         if self.busy:
             return False, "already updating"
         if not port:
@@ -127,7 +128,9 @@ class Flasher:
             image = read_image(folder)
         except ValueError as e:
             return False, str(e)
-        command = [*tool, "--chip", CHIP, "-p", port, "-b", BAUD, "--before", "default_reset", "--after", "hard_reset",
+        if board and image["board"] and board != image["board"]:
+            return False, f"this firmware is for {image['board']}, and this board is {board}"
+        command = [*tool, "--chip", image["chip"], "-p", port, "-b", BAUD, "--before", "default_reset", "--after", "hard_reset",
                    "write_flash", *image["flash"]]
         for f in image["files"]:
             command += [f["offset"], f["path"]]

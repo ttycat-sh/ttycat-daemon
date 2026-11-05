@@ -77,10 +77,10 @@ class ReadImage(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "damaged"):
             flasher.read_image(str(self.image.path))
 
-    def test_another_chips_image_is_refused(self):
-        self.image.manifest["chip"] = "esp32s3"
+    def test_a_nonsense_chip_is_refused(self):
+        self.image.manifest["chip"] = "--flash-erase"
         self.image.save()
-        with self.assertRaisesRegex(ValueError, "esp32s3"):
+        with self.assertRaisesRegex(ValueError, "chip"):
             flasher.read_image(str(self.image.path))
 
     def test_files_outside_the_image_are_refused(self):
@@ -172,6 +172,15 @@ class Flashing(unittest.TestCase):
         self.assertEqual(f.state, "idle")
         self.assertTrue(self.start(f, fw="my-lamp-1.0", unknown=True)[0])
 
+    def test_firmware_for_another_board_is_refused_even_with_agreement(self):
+        self.image.manifest["board"] = "another-board"
+        self.image.save()
+        f = self.flasher(GOOD)
+        ok, msg = f.start(str(self.image.path), "/dev/cu.test", "my-lamp-1.0", True, "this-board")
+        self.assertFalse(ok)
+        self.assertIn("another-board", msg)
+        self.assertEqual(f.state, "idle")
+
     def test_no_board_no_flash(self):
         f = self.flasher(GOOD)
         self.assertFalse(f.start(str(self.image.path), None, "0.6.1", False)[0])
@@ -254,24 +263,6 @@ class OwnEsptool(unittest.TestCase):
             (package / "__init__.py").write_text("")
             with mock.patch.object(flasher.sys, "prefix", prefix):
                 self.assertEqual(flasher.find_esptool(), [sys.executable, "-E", "-s", "-B", "-m", "esptool"])
-
-
-class HelloQuiet(unittest.TestCase):
-    """The board only says what it runs after 2 s of hearing nothing."""
-
-    def test_a_new_connection_stays_quiet_until_the_board_speaks(self):
-        board = ttycatd.Board(None)
-        board.opened_at = 100.0
-        self.assertTrue(board.waiting_for_hello(100.1))
-        self.assertTrue(board.waiting_for_hello(104.9))
-        board.fw = "0.6.2"
-        self.assertFalse(board.waiting_for_hello(100.2))
-
-    def test_a_device_that_never_says_still_gets_its_beats(self):
-        board = ttycatd.Board(None)
-        board.opened_at = 100.0
-        self.assertFalse(board.waiting_for_hello(105.1))
-
 
 class Esptool(unittest.TestCase):
     def test_found_only_with_its_python(self):

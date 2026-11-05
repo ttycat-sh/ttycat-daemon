@@ -54,40 +54,71 @@ CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
 HOOK_TIMEOUT_S = 86400  # the terminal prompt stays usable meanwhile: see approvals.py
 HEARTBEAT_S = 1.0
-HELLO_WAIT_S = 5.0  # a board says what it runs after 2 s without hearing anything, and booting takes a moment
+HELLO_WAIT_S = 6.0  # a board says what it runs after 2 s without hearing anything, and booting takes a moment
+PROTOCOL = 1  # what a device has to speak. Goes up when a change would break one that's already built
+SERIAL_PORTS = ("/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.wchusbserial*", "/dev/cu.SLAB_USBtoUART*")
 
 
 def log(*a):
     print(time.strftime("%H:%M:%S"), *a, flush=True)
 
 
-def find_port(explicit: str | None) -> str | None:
-    if explicit:
-        return explicit if os.path.exists(explicit) else None
-    ports = sorted(glob.glob("/dev/cu.usbmodem*"))
-    return ports[0] if ports else None
+def serial_ports() -> list[str]:
+    """Native USB first. Which of these is a board only comes out when one says hello."""
+    return [path for pattern in SERIAL_PORTS for path in sorted(glob.glob(pattern))]
 
 
 class Board:
-    """The serial port, opened raw. Reopens when the board comes back."""
+    """The serial port, opened raw. Reopens when the board comes back.
+
+    Anything can be on a serial port, and opening one can restart what's on it. So each port gets
+    one try and nothing is sent to it until it says hello. One that stays silent is left alone
+    until it's unplugged or something's written to it. It might still need firmware, so Setup
+    can offer that.
+    """
 
     def __init__(self, port: str | None):
         self.want = port
         self.path: str | None = None
         self.fw: str | None = None
+        self.name: str | None = None  # which folder in firmware/boards it was built from
+        self.protocol = None
+        self.silent: set[str] = set()
+        self.asks = 0  # times it's asked for a prompt to be shown on the Mac
+        self.asked: str | None = None
         self.fd: int | None = None
         self.buf = b""
         self.out = b""
         self.opened_at = 0.0
         self.dim = False  # its screen has gone dim, and Bit dozes there
 
-    def waiting_for_hello(self, now: float) -> bool:
-        """Keep quiet for a moment after connecting: the board won't say hello otherwise,
-        so its version would stay unknown. A device that never says it gets its beats anyway."""
-        return self.fw is None and now - self.opened_at < HELLO_WAIT_S
+    def next_port(self) -> str | None:
+        if self.want:
+            return self.want if os.path.exists(self.want) else None
+        ports = serial_ports()
+        self.silent &= set(ports)  # unplugged: worth another try when it comes back
+        return next((path for path in ports if path not in self.silent), None)
+
+    def give_up_if_silent(self, now: float):
+        if self.fd is None or self.fw is not None or now - self.opened_at < HELLO_WAIT_S:
+            return
+        self.silent.add(self.path)
+        if not self.want:
+            log("nothing said hello on", self.path)
+            self.close()
+
+    def said_hello(self, m: dict):
+        self.fw = clean_name(m.get("fw")) or self.fw
+        self.name = clean_name(m.get("b"))
+        self.protocol = m.get("p")
+        self.silent.discard(self.path)
+
+    @property
+    def speaks(self) -> bool:
+        return self.fw is not None and self.protocol == PROTOCOL
 
     def open(self) -> bool:
-        path = find_port(self.want)
+        path = self.next_port()
         if not path:
             return False
         try:
@@ -95,12 +126,13 @@ class Board:
             attrs = termios.tcgetattr(fd)
             attrs[0] = attrs[1] = attrs[3] = 0
             attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+            attrs[4] = attrs[5] = termios.B230400  # a USB-to-serial chip needs this; native USB ignores it
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
         except OSError as e:
             log("cannot open", path, e)
             return False
         self.fd, self.buf, self.out = fd, b"", b""
-        self.path, self.fw = path, None
+        self.path, self.fw, self.name, self.protocol = path, None, None, None
         self.opened_at = time.monotonic()
         self.dim = False
         log("board on", path)
@@ -203,12 +235,17 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
     watching: str | None = None
     shot_client: socket.socket | None = None
     shot_parts: dict[int, str] = {}
+
+    def state():
+        return state_message(source, watching, look, devices.may_approve(board.fw))
+
     try:
         while True:
             for hub in hubs:
                 hub.settle()
             if board.fd is None and (flasher.holds_port or not board.open()):
                 source.poll()  # keep watching: histories and ages stay right
+            board.give_up_if_silent(time.monotonic())
             readers = [ctl, *(sock for hub in hubs for sock in hub.fds())] + ([board.fd] if board.fd is not None else [])
             if flasher.fd is not None:
                 readers.append(flasher.fd)
@@ -238,10 +275,14 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                             shot_client.close()
                             shot_client, shot_parts = None, {}
                     elif t == "hello" and time.monotonic() >= silent_until:
-                        board.fw = clean_name(m.get("fw")) or board.fw
-                        board.send({"t": "hello"})
+                        board.said_hello(m)
+                        board.send({"t": "hello", "p": PROTOCOL})
                         flasher.board_said(board.fw)
                         next_beat = 0
+                        if not board.speaks:
+                            log("firmware", board.fw, "speaks protocol", board.protocol, "and this speaks", PROTOCOL)
+                    elif not board.speaks:
+                        pass  # it hasn't said who it is, or it wouldn't understand
                     elif t == "dim":
                         board.dim = m.get("on") is True
                     elif t == "touch":
@@ -251,9 +292,13 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         watching = m.get("id")
                         next_beat = 0
                     elif t == "act":
-                        ok, msg = device_action(source, board.fw, devices, m)
+                        if m.get("a") == "ask-mac":
+                            board.asks, board.asked = board.asks + 1, m.get("id")
+                            ok, msg = True, ""
+                        else:
+                            ok, msg = device_action(source, board.fw, devices, m)
                         log("action", m.get("a"), m.get("id"), "ok" if ok else f"refused: {msg}")
-                        board.send(state_message(source, watching, look))
+                        board.send(state())
                         board.send({"t": "ack", "ok": ok, "msg": msg})
                         next_beat = time.monotonic() + HEARTBEAT_S
             if ctl in r:
@@ -285,11 +330,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                     elif cmd["t"] == "device":
                         reply = device_setting(board, devices, cmd)
                     elif cmd["t"] == "flash":
-                        port = board.path if board.fd is not None else None
-                        ok, msg = flasher.start(str(cmd.get("dir", "")), port, board.fw, cmd.get("unknown") is True)
-                        if ok:
-                            board.close()  # esptool needs the port to itself
-                        reply = {"ok": ok, "msg": msg}
+                        reply = start_flash(board, flasher, cmd)
                     elif cmd["t"] == "activity":
                         reply = {"items": source.history(str(cmd.get("id", "")), APP_ACTIVITY_ROWS, False)}
                     else:
@@ -323,8 +364,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                     conn.settimeout(30)
                 else:
                     conn.close()
-            if board.fd is not None and time.monotonic() >= next_beat and not board.waiting_for_hello(time.monotonic()):
-                board.send(state_message(source, watching, look))
+            if board.fd is not None and board.speaks and time.monotonic() >= next_beat:
+                board.send(state())
                 next_beat = time.monotonic() + HEARTBEAT_S
     finally:
         flasher.close()
@@ -351,12 +392,14 @@ def read_request(conn: socket.socket) -> dict:
     raise ValueError("not a request")
 
 
-def state_message(source, watching: str | None, look: Look | None = None) -> dict:
+def state_message(source, watching: str | None, look: Look | None = None, may_approve: bool = True) -> dict:
     now = time.time()
     offset = time.localtime(now).tm_gmtoff or 0
     msg = {"t": "state", "now": int(now) + offset, "s": source.poll(), "pet": source.pet()}
     if look and (look.skin or look.accent):
         msg["look"] = [look.skin, look.accent]
+    if not may_approve:
+        msg["na"] = True  # so it can say so, instead of offering a button that won't work
     if watching:
         msg["hist"] = {"id": watching, "items": source.history(watching)}
     return msg
@@ -372,8 +415,11 @@ def status_message(source, board: Board, flasher: Flasher | None = None, look: L
     desk = source.desk() if hasattr(source, "desk") else {}
     msg["s"] = [{**row, **desk.get(row["id"], {})} for row in msg["s"]]
     msg.update(t="status", pid=os.getpid(), term=getattr(source, "focus_app", None),
-               board={"connected": board.fd is not None, "port": board.path, "fw": board.fw, "dim": board.dim,
-                      "approves": (devices or Devices()).may_approve(board.fw)},
+               board={"connected": board.fd is not None and board.fw is not None, "port": board.path, "fw": board.fw,
+                      "dim": board.dim, "approves": (devices or Devices()).may_approve(board.fw), "name": board.name,
+                      "outdated": board.fw is not None and not board.speaks, "silent": sorted(board.silent),
+                      "probing": board.fd is not None and board.fw is None and board.path not in board.silent,
+                      "asks": board.asks, "asked": board.asked},
                machines=[{"host": r.host, "up": r.reachable and not r.stale, "answers": bool(getattr(r, "tunnel", None) and r.tunnel.up)}
                          for r in getattr(source, "remotes", ())])
     if flasher:
@@ -387,6 +433,25 @@ def device_action(source, fw: str | None, devices: Devices, m: dict) -> tuple[bo
     if not devices.permits(action, fw):
         return False, NOT_ALLOWED
     return source.act(action, m.get("id", ""), m.get("rev", ""), m.get("ans"))
+
+
+def start_flash(board: Board, flasher: Flasher, cmd: dict) -> dict:
+    """A named port is one that's stayed silent: the person was told which one would be overwritten."""
+    connected = board.fd is not None and board.fw is not None
+    port, fw, name = (board.path, board.fw, board.name) if connected else (None, None, None)
+    asked = cmd.get("port")
+    if asked and asked != port:
+        if connected:
+            return {"ok": False, "msg": f"{board.fw} is connected: unplug it first"}
+        if asked not in board.silent and asked not in serial_ports():
+            return {"ok": False, "msg": f"no such port: {asked}"}
+        port = asked
+    ok, msg = flasher.start(str(cmd.get("dir", "")), port, fw, cmd.get("unknown") is True, name)
+    if ok:
+        board.silent.clear()  # whatever comes back deserves a new try
+        if board.fd is not None:
+            board.close()  # esptool needs the port to itself
+    return {"ok": ok, "msg": msg}
 
 
 def device_setting(board: Board, devices: Devices, cmd: dict) -> dict:
@@ -501,7 +566,7 @@ def main():
     early.add_argument("--plugin")
     api = plugins.load(early.parse_known_args()[0].plugin, log)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", help="serial port (default: the first /dev/cu.usbmodem*)")
+    ap.add_argument("--port", help="serial port (default: the first one that says hello)")
     ap.add_argument("--plugin", help="a folder holding ttycat_plugin.py: see plugins.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run")
@@ -517,6 +582,9 @@ def main():
     s.add_argument("action", choices=["install", "remove", "status", "repair"])
     s = sub.add_parser("pet")
     s.add_argument("--name")
+    s = sub.add_parser("flash", help="put a build on the board, through the running daemon")
+    s.add_argument("folder", help="from tools/firmware_bundle.py")
+    s.add_argument("--replace", action="store_true", help="overwrite custom firmware, or a port that stays silent")
     s = sub.add_parser("shot")
     s.add_argument("path")
     s = sub.add_parser("tap")
@@ -568,6 +636,21 @@ def main():
         print("Permission hook:", hook_command(a.action))
     elif a.cmd in api.commands:
         api.commands[a.cmd][1](a)
+    elif a.cmd == "flash":
+        request = {"t": "flash", "dir": os.path.abspath(a.folder), "unknown": a.replace}
+        if a.port:
+            request["port"] = a.port
+        reply = json.loads(ctl_send(request, want_reply=True))
+        if not reply["ok"]:
+            sys.exit(reply["msg"])
+        while True:
+            time.sleep(1)
+            flash = json.loads(ctl_send({"t": "status"}, want_reply=True))["flash"]
+            print(flash["state"], f'{flash["pct"]}%' if flash["state"] == "flashing" else "", flush=True)
+            if flash["state"] == "failed":
+                sys.exit(flash["msg"])
+            if flash["state"] == "done":
+                break
     elif a.cmd == "shot":
         frame = ctl_send({"t": "shot"}, want_reply=True)
         if len(frame) != 240 * 320 * 2:
