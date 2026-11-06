@@ -32,6 +32,7 @@ import time
 import zlib
 from pathlib import Path
 
+import art
 import plugins
 from approvals import HOOK_SOCK, Hub, HubScope
 from claude_sessions import ClaudeSessions, RunningAgents, is_session_pane
@@ -84,6 +85,7 @@ class Board:
         self.fw: str | None = None
         self.name: str | None = None  # which folder in firmware/boards it was built from
         self.protocol = None
+        self.art = None  # the art format it draws, if it said
         self.silent: set[str] = set()
         self.asks = 0  # times it's asked for a prompt to be shown on the Mac
         self.asked: str | None = None
@@ -112,6 +114,7 @@ class Board:
         self.fw = clean_name(m.get("fw")) or self.fw
         self.name = clean_name(m.get("b"))
         self.protocol = m.get("p")
+        self.art = m.get("art")
         self.silent.discard(self.path)
 
     @property
@@ -133,7 +136,7 @@ class Board:
             log("cannot open", path, e)
             return False
         self.fd, self.buf, self.out = fd, b"", b""
-        self.path, self.fw, self.name, self.protocol = path, None, None, None
+        self.path, self.fw, self.name, self.protocol, self.art = path, None, None, None, None
         self.opened_at = time.monotonic()
         self.dim = False
         log("board on", path)
@@ -234,11 +237,15 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
     next_beat = 0.0
     silent_until = 0.0
     watching: str | None = None
+    showing: dict | None = None  # the art for Bit's stage, sent to any board that can draw it
     shot_client: socket.socket | None = None
     shot_parts: dict[int, str] = {}
 
+    def drawn() -> dict | None:
+        return showing if art.drawable(showing, board.art) else None
+
     def state():
-        return state_message(source, watching, look, devices.may_approve(board.fw))
+        return state_message(source, watching, look, devices.may_approve(board.fw), drawn())
 
     try:
         while True:
@@ -279,6 +286,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                     elif t == "hello" and time.monotonic() >= silent_until:
                         board.said_hello(m)
                         board.send({"t": "hello", "p": PROTOCOL})
+                        if board.speaks and drawn():  # before the state that names it
+                            board.send(drawn())
                         flasher.board_said(board.fw)
                         next_beat = 0
                         if not board.speaks:
@@ -287,6 +296,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         pass  # it hasn't said who it is, or it wouldn't understand
                     elif t == "dim":
                         board.dim = m.get("on") is True
+                    elif t == "need" and m.get("what") == "art" and drawn():
+                        board.send(drawn())
                     elif t == "touch":
                         log("touch", m.get("x"), m.get("y"))
                         source.act("pet-here", "", "")
@@ -323,9 +334,25 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         pass
                     conn.close()
                     continue
+                if cmd.get("t") == "art":  # art for Bit's stage, or None to take it away
+                    shown = cmd.get("art")
+                    why = art.check(shown) if shown is not None else ""
+                    if not why:
+                        showing = shown
+                        if board.speaks and drawn():
+                            board.send(drawn())
+                        next_beat = 0
+                        log("art", showing["id"] if showing else "off")
+                    try:
+                        conn.sendall(json.dumps({"ok": not why, "msg": why}, separators=(",", ":")).encode())
+                    except OSError:
+                        pass
+                    conn.close()
+                    continue
                 if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device"):  # the Mac app
                     if cmd["t"] == "status":
                         reply = status_message(source, board, flasher, look, devices)
+                        reply["art"] = {"showing": showing["id"] if showing else None, "drawn": bool(drawn())}
                     elif cmd["t"] == "look":
                         reply = look.set(cmd.get("skin"), cmd.get("accent"))
                         next_beat = 0
@@ -394,12 +421,15 @@ def read_request(conn: socket.socket) -> dict:
     raise ValueError("not a request")
 
 
-def state_message(source, watching: str | None, look: Look | None = None, may_approve: bool = True) -> dict:
+def state_message(source, watching: str | None, look: Look | None = None, may_approve: bool = True,
+                  shown: dict | None = None) -> dict:
     now = time.time()
     offset = time.localtime(now).tm_gmtoff or 0
     msg = {"t": "state", "now": int(now) + offset, "s": source.poll(), "pet": source.pet()}
     if look and (look.skin or look.accent):
         msg["look"] = [look.skin, look.accent]
+    if shown:
+        msg["art"] = shown["id"]  # the board shows only the art this names
     if not may_approve:
         msg["na"] = True  # so it can say so, instead of offering a button that won't work
     if watching:
@@ -418,7 +448,7 @@ def status_message(source, board: Board, flasher: Flasher | None = None, look: L
     msg["s"] = [{**row, **desk.get(row["id"], {})} for row in msg["s"]]
     msg.update(t="status", pid=os.getpid(), term=getattr(source, "focus_app", None),
                board={"connected": board.fd is not None and board.fw is not None, "port": board.path, "fw": board.fw,
-                      "dim": board.dim, "approves": (devices or Devices()).may_approve(board.fw), "name": board.name,
+                      "dim": board.dim, "art": board.art, "approves": (devices or Devices()).may_approve(board.fw), "name": board.name,
                       "outdated": board.fw is not None and not board.speaks, "silent": sorted(board.silent),
                       "probing": board.fd is not None and board.fw is None and board.path not in board.silent,
                       "asks": board.asks, "asked": board.asked},
@@ -599,6 +629,8 @@ def main():
     s.add_argument("screen")
     s = sub.add_parser("scene")
     s.add_argument("name")
+    s = sub.add_parser("art", help="show this art on Bit's stage (docs/PROTOCOL.md, \"Art\"), until the daemon stops")
+    s.add_argument("file", help="a JSON file with the art message, or off")
     s = sub.add_parser("silence")
     s.add_argument("seconds", type=float)
     a = ap.parse_args()
@@ -672,6 +704,17 @@ def main():
         ctl_send({"t": "goto", "screen": a.screen})
     elif a.cmd == "scene":
         ctl_send({"t": "scene", "name": a.name})
+    elif a.cmd == "art":
+        if a.file == "off":
+            shown = None
+        else:
+            try:
+                shown = json.loads(Path(a.file).read_text())
+            except (OSError, ValueError) as e:
+                sys.exit(f"art: {e}")
+        reply = json.loads(ctl_send({"t": "art", "art": shown}, want_reply=True))
+        if not reply["ok"]:
+            sys.exit(f"art: {reply['msg']}")
     elif a.cmd == "silence":
         ctl_send({"t": "silence", "s": a.seconds})
 
