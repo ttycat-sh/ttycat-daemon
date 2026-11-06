@@ -1,0 +1,4 @@
+{
+ "about": "Public keys whose core releases the app will build for custom boards: see release.py. tools/release_key.py makes one. The secret half lives only where releases are signed.",
+ "keys": []
+}

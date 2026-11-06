@@ -43,6 +43,51 @@ def find_esptool() -> list[str] | None:
     return None
 
 
+def make_image(build: Path, out: Path) -> str:
+    """Packs a firmware build into an image, and gives the version it says it is. Raises ValueError.
+
+    The version and board come out of the binary itself, the hello the board sends when it starts,
+    so an image can't claim to be anything it isn't."""
+    build, out = Path(build), Path(out)
+    try:
+        args = json.loads((build / "flasher_args.json").read_text())
+        found = re.search(rb'\{"t":"hello","fw":"([^"\\]+)","b":"([^"\\]+)","p":\d+[,}]', (build / "ttycat.bin").read_bytes())
+    except (OSError, ValueError) as e:
+        raise ValueError(f"no usable build in {build}: {e}") from e
+    if not found:
+        raise ValueError(f"no version in {build / 'ttycat.bin'}: it may be from an older source, so build it again")
+    out.mkdir(parents=True, exist_ok=True)
+    files = []
+    for offset, name in sorted(args["flash_files"].items(), key=lambda kv: int(kv[0], 16)):
+        data = (build / name).read_bytes()
+        (out / Path(name).name).write_bytes(data)
+        files.append({"offset": offset, "path": Path(name).name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+    version, board = found.group(1).decode(), found.group(2).decode()
+    manifest = {"version": version, "chip": args["extra_esptool_args"]["chip"], "board": board,
+                "flash": args["write_flash_args"], "files": files}
+    if is_custom(version):
+        source = built_from(build, board)
+        if source:
+            manifest["from"] = source
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    return version
+
+
+def built_from(build: Path, board: str) -> dict | None:
+    """For someone's own build: the board folder and ESP-IDF it came from, as ESP-IDF recorded them, and
+    the folder's hash now, so a board flashed with it can be registered (boards.py). Never in a release:
+    it's only for this Mac."""
+    from boards import folder_hash  # boards.py imports this module
+    try:
+        about = json.loads((Path(build) / "project_description.json").read_text())
+        folder, idf = about["build_component_info"][board]["dir"], about["idf_path"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(folder, str) or not isinstance(idf, str) or not Path(folder).is_dir():
+        return None
+    return {"folder": folder, "idf": idf, "hash": folder_hash(Path(folder))}
+
+
 def read_image(folder: str) -> dict:
     """The manifest, once everything in it is known to be sound. Raises ValueError otherwise."""
     root = Path(folder)
@@ -76,7 +121,9 @@ def read_image(folder: str) -> dict:
         if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
             raise ValueError(f"damaged image: {name}")
         checked.append({"offset": offset, "path": str(path), "size": size})
-    return {"version": version, "chip": chip, "board": manifest.get("board"), "flash": flash, "files": checked}
+    source = manifest.get("from")
+    return {"version": version, "chip": chip, "board": manifest.get("board"), "flash": flash, "files": checked,
+            "from": source if isinstance(source, dict) else None}
 
 
 class Flasher:
@@ -96,6 +143,8 @@ class Flasher:
         self.written: dict[int, int] = {}
         self.partial = b""
         self.last_lines: list[str] = []
+        self.image: str | None = None
+        self.source: dict | None = None
 
     @property
     def busy(self) -> bool:
@@ -136,6 +185,7 @@ class Flasher:
             command += [f["offset"], f["path"]]
         self.files, self.written, self.partial, self.last_lines = image["files"], {}, b"", []
         self.to, self.pct, self.msg = image["version"], 0, ""
+        self.image, self.source = folder, image["from"]  # what's being written, and where it was built from
         try:
             self.process = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -214,15 +264,16 @@ class Flasher:
         self.state, self.msg = "failed", reason
         self.log("firmware: failed:", reason, "|", " / ".join(self.last_lines)[:300])
 
-    def board_said(self, fw: str | None):
-        """The board said hello: this is the only proof that an update worked."""
+    def board_said(self, fw: str | None) -> bool:
+        """The board said hello: this is the only proof that an update worked. True if it just did."""
         if self.state != "restarting":
-            return
+            return False
         if fw == self.to:
             self.state, self.msg = "done", ""
             self.log("firmware: board now runs", fw)
-        else:
-            self._fail(f"the board came back running {fw}, not {self.to}")
+            return True
+        self._fail(f"the board came back running {fw}, not {self.to}")
+        return False
 
     def tick(self):
         if self.state == "flashing" and time.monotonic() >= self.deadline:
