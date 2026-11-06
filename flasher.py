@@ -5,6 +5,11 @@ back. An update is finished only when the board itself says it's running the new
 
 An image is a folder with manifest.json next to the files it names (tools/firmware_bundle.py
 makes one). Each file's hash is checked first: nothing is written from a damaged image.
+
+ttycat's own firmware, with a plain version, is only written from a signed image: one with a
+release.json whose signature is one of ours (release.py), wherever the image came from. Then
+release.json is what's trusted, and manifest.json is only for showing. Someone's own build,
+such as custom-0.10.1-896b3059, needs no signature: it came from their own folder.
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ import sys
 import time
 from pathlib import Path
 
+import release
 from devices import is_custom
 
 BAUD = "460800"
@@ -43,7 +49,7 @@ def find_esptool() -> list[str] | None:
     return None
 
 
-def make_image(build: Path, out: Path) -> str:
+def make_image(build: Path, out: Path, secret: bytes | None = None) -> str:
     """Packs a firmware build into an image, and gives the version it says it is. Raises ValueError.
 
     The version and board come out of the binary itself, the hello the board sends when it starts,
@@ -70,6 +76,11 @@ def make_image(build: Path, out: Path) -> str:
         if source:
             manifest["from"] = source
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    (out / "release.json").unlink(missing_ok=True)
+    if secret:
+        if is_custom(version):
+            raise ValueError(f"{version} is someone's own build: only ttycat's releases are signed")
+        (out / "release.json").write_text(json.dumps(release.seal_firmware(manifest, secret), indent=1) + "\n")
     return version
 
 
@@ -88,14 +99,19 @@ def built_from(build: Path, board: str) -> dict | None:
     return {"folder": folder, "idf": idf, "hash": folder_hash(Path(folder))}
 
 
-def read_image(folder: str) -> dict:
-    """The manifest, once everything in it is known to be sound. Raises ValueError otherwise."""
+def read_image(folder: str, keys: dict[str, bytes] | None = None) -> dict:
+    """The manifest, once everything in it is known to be sound. Raises ValueError otherwise.
+    `keys` are the ones a signed image may be signed by: release_keys.json's, unless given."""
     root = Path(folder)
+    signed = (root / "release.json").exists()
     try:
-        manifest = json.loads((root / "manifest.json").read_text())
+        manifest = release.open_firmware(root / "release.json", keys) if signed else \
+            json.loads((root / "manifest.json").read_text())
         version, files, flash = manifest["version"], manifest["files"], manifest["flash"]
     except (OSError, ValueError, KeyError, TypeError) as e:
         raise ValueError(f"no usable firmware image: {e}") from e
+    if not isinstance(version, str) or (not is_custom(version) and not signed):
+        raise ValueError(f"{version} says it's ttycat's own firmware, but the image isn't signed")
     chip = manifest.get("chip")  # esptool refuses to write if the board turns out to be another chip
     if not isinstance(chip, str) or not re.fullmatch(r"esp32[a-z0-9]*", chip):
         raise ValueError(f"no usable firmware image: chip {chip}")
@@ -123,15 +139,17 @@ def read_image(folder: str) -> dict:
         checked.append({"offset": offset, "path": str(path), "size": size})
     source = manifest.get("from")
     return {"version": version, "chip": chip, "board": manifest.get("board"), "flash": flash, "files": checked,
+            "signed": signed,
             "from": source if isinstance(source, dict) else None}
 
 
 class Flasher:
     """idle -> flashing -> restarting -> done, or failed from either. Never blocks the daemon."""
 
-    def __init__(self, log=print, tool=find_esptool):
+    def __init__(self, log=print, tool=find_esptool, keys: dict[str, bytes] | None = None):
         self.log = log
         self.tool = tool
+        self.keys = keys  # who ttycat's own images may be signed by: release_keys.json's, unless given
         self.state = "idle"
         self.pct = 0
         self.msg = ""
@@ -174,7 +192,7 @@ class Flasher:
         if not tool:
             return False, "esptool not found"
         try:
-            image = read_image(folder)
+            image = read_image(folder, self.keys)
         except ValueError as e:
             return False, str(e)
         if board and image["board"] and board != image["board"]:

@@ -362,8 +362,12 @@ class Registered(unittest.TestCase):
         self.assertEqual(source, {"folder": str(self.folder), "idf": str(self.idf), "hash": folder_hash(self.folder)})
         make_build(self.dir / "release", "0.10.1", "my-board")
         self.describe(self.dir / "release")
-        make_image(self.dir / "release", self.dir / "release-img")
-        self.assertIsNone(read_image(str(self.dir / "release-img"))["from"])  # a release carries no paths from this Mac
+        make_image(self.dir / "release", self.dir / "release-img", SECRET)
+        self.assertIsNone(read_image(str(self.dir / "release-img"), KEYS)["from"])  # a release carries no paths from this Mac
+
+    def test_only_ttycats_releases_are_signed(self):
+        with self.assertRaisesRegex(ValueError, "someone's own"):
+            make_image(self.dir / "build", self.dir / "img", SECRET)
 
     def test_flashing_a_custom_build_registers_the_board(self):
         self.describe(self.dir / "build")

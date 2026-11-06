@@ -13,7 +13,12 @@ from unittest import mock
 DAEMON = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(DAEMON))
 import ttycatd  # noqa: E402
+import ed25519  # noqa: E402
 import flasher  # noqa: E402
+import release  # noqa: E402
+
+SECRET = bytes(range(32))  # a test key: ttycat's own images are only written signed
+KEYS = {release.key_id(ed25519.public_key(SECRET)): ed25519.public_key(SECRET)}
 
 GOOD = b"""
 import sys
@@ -53,8 +58,11 @@ class Image:
                 {"offset": offset, "path": name, "size": size, "sha256": hashlib.sha256(data).hexdigest()})
         self.save()
 
-    def save(self):
+    def save(self, secret: bytes | None = SECRET):
         (self.path / "manifest.json").write_text(json.dumps(self.manifest))
+        (self.path / "release.json").unlink(missing_ok=True)
+        if secret:
+            (self.path / "release.json").write_text(json.dumps(release.seal_firmware(self.manifest, secret)))
 
 
 class ReadImage(unittest.TestCase):
@@ -63,47 +71,83 @@ class ReadImage(unittest.TestCase):
         self.addCleanup(self.image.dir.cleanup)
 
     def test_a_sound_image(self):
-        read = flasher.read_image(str(self.image.path))
+        read = flasher.read_image(str(self.image.path), KEYS)
         self.assertEqual(read["version"], "0.7.0")
         self.assertEqual([f["offset"] for f in read["files"]], ["0x2000", "0x10000"])
 
     def test_a_changed_file_is_refused(self):
         (self.image.path / "app.bin").write_bytes(b"y" * 900)
         with self.assertRaisesRegex(ValueError, "damaged"):
-            flasher.read_image(str(self.image.path))
+            flasher.read_image(str(self.image.path), KEYS)
 
     def test_a_shortened_file_is_refused(self):
         (self.image.path / "app.bin").write_bytes(b"x" * 899)
         with self.assertRaisesRegex(ValueError, "damaged"):
-            flasher.read_image(str(self.image.path))
+            flasher.read_image(str(self.image.path), KEYS)
 
     def test_a_nonsense_chip_is_refused(self):
         self.image.manifest["chip"] = "--flash-erase"
         self.image.save()
         with self.assertRaisesRegex(ValueError, "chip"):
-            flasher.read_image(str(self.image.path))
+            flasher.read_image(str(self.image.path), KEYS)
 
     def test_files_outside_the_image_are_refused(self):
         self.image.manifest["files"][0]["path"] = "../boot.bin"
         self.image.save()
         with self.assertRaisesRegex(ValueError, "outside"):
-            flasher.read_image(str(self.image.path))
+            flasher.read_image(str(self.image.path), KEYS)
 
     def test_an_offset_that_could_be_an_option_is_refused(self):
         self.image.manifest["files"][0]["offset"] = "--erase-all"
         self.image.save()
         with self.assertRaisesRegex(ValueError, "offset"):
-            flasher.read_image(str(self.image.path))
+            flasher.read_image(str(self.image.path), KEYS)
 
     def test_flash_settings_can_only_be_plain_words(self):
         self.image.manifest["flash"] = ["--flash_mode", "dio; rm -rf /"]
         self.image.save()
         with self.assertRaisesRegex(ValueError, "flash settings"):
-            flasher.read_image(str(self.image.path))
+            flasher.read_image(str(self.image.path), KEYS)
+
+    def test_ttycats_own_firmware_has_to_be_signed(self):
+        self.image.save(secret=None)
+        with self.assertRaisesRegex(ValueError, "isn't signed"):
+            flasher.read_image(str(self.image.path), KEYS)
+
+    def test_signed_by_a_key_nobody_trusts_is_refused(self):
+        self.image.save(secret=bytes(range(1, 33)))
+        with self.assertRaisesRegex(ValueError, "doesn't trust"):
+            flasher.read_image(str(self.image.path), KEYS)
+
+    def test_the_signature_is_what_counts_not_the_manifest_beside_it(self):
+        # Someone swaps the files and writes a matching manifest.json: release.json still names the old ones.
+        (self.image.path / "app.bin").write_bytes(b"evil" * 225)
+        self.image.manifest["files"][1]["sha256"] = hashlib.sha256(b"evil" * 225).hexdigest()
+        (self.image.path / "manifest.json").write_text(json.dumps(self.image.manifest))
+        with self.assertRaisesRegex(ValueError, "damaged"):
+            flasher.read_image(str(self.image.path), KEYS)
+
+    def test_a_changed_signed_manifest_is_refused(self):
+        envelope = json.loads((self.image.path / "release.json").read_text())
+        envelope["body"] = envelope["body"].replace("0.7.0", "0.9.0")
+        (self.image.path / "release.json").write_text(json.dumps(envelope))
+        with self.assertRaisesRegex(ValueError, "signature"):
+            flasher.read_image(str(self.image.path), KEYS)
+
+    def test_a_signed_core_release_isnt_firmware(self):
+        envelope = release.seal({"kind": "ttycat-core", "version": "0.7.0"}, SECRET)
+        (self.image.path / "release.json").write_text(json.dumps(envelope))
+        with self.assertRaisesRegex(ValueError, "isn't a firmware release"):
+            flasher.read_image(str(self.image.path), KEYS)
+
+    def test_someones_own_build_needs_no_signature(self):
+        self.image.manifest["version"] = "custom-0.7.0-a1b2c3d4"
+        self.image.save(secret=None)
+        self.assertFalse(flasher.read_image(str(self.image.path), KEYS)["signed"])
 
     def test_no_manifest(self):
         with self.assertRaisesRegex(ValueError, "no usable"):
-            flasher.read_image(str(self.image.path / "nothing"))
+            flasher.read_image(str(self.image.path / "nothing"), KEYS)
 
 
 class Flashing(unittest.TestCase):
@@ -114,7 +158,7 @@ class Flashing(unittest.TestCase):
     def flasher(self, script: bytes) -> flasher.Flasher:
         path = self.image.path / "fake_esptool.py"
         path.write_bytes(script)
-        made = flasher.Flasher(log=lambda *a: None, tool=lambda: [sys.executable, str(path)])
+        made = flasher.Flasher(log=lambda *a: None, tool=lambda: [sys.executable, str(path)], keys=KEYS)
         self.addCleanup(made.close)
         return made
 

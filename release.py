@@ -1,4 +1,5 @@
-"""Core releases: ttycat's firmware source, signed, so the Mac can build it for boards of people's own.
+"""Signed releases: ttycat's firmware source, so the Mac can build it for boards of people's own,
+and each official board's firmware. Both are signed the same way, and checked the same way.
 
 A release is two files side by side:
   ttycat-core-0.11.0.tar.gz   the firmware folder, without builds
@@ -9,6 +10,10 @@ those bytes, by the key named in `key`. Only keys in release_keys.json are trust
 release comes from, the app or a server, nobody but whoever holds that key can make one it builds.
 The body names the archive's size and SHA-256, so the archive is covered by the signature too.
 tools/release_core.py makes them.
+
+An official board's firmware is an image folder (flasher.py) with a release.json in the same
+envelope, whose body is the image's manifest with "kind": "ttycat-firmware". tools/firmware_bundle.py
+--sign makes one. The manifest names each file's size and SHA-256, so the files are covered too.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ from pathlib import Path
 import ed25519
 
 KIND = "ttycat-core"
+FIRMWARE_KIND = "ttycat-firmware"
 KEYS_FILE = Path(__file__).with_name("release_keys.json")
 DEV_KEY_ENV = "TTYCAT_TRUST_KEY"  # a key to trust while developing, never in a release
 VERSION = re.compile(r"[0-9]+(\.[0-9]+){1,3}")
@@ -77,10 +83,22 @@ def seal(body: dict, secret: bytes) -> dict:
     return {"body": text, "key": key_id(public), "sig": base64.b64encode(signature).decode()}
 
 
-def open_release(path: Path, keys: dict[str, bytes] | None = None) -> dict:
-    """The release described in `path`, once its signature and its archive have been checked.
-    Raises ValueError, with a reason someone could act on, for anything else."""
-    path = Path(path)
+def seal_firmware(manifest: dict, secret: bytes) -> dict:
+    """Signs an official board's image: its manifest, as flasher.make_image writes it."""
+    return seal({**manifest, "kind": FIRMWARE_KIND}, secret)
+
+
+def open_firmware(path: Path, keys: dict[str, bytes] | None = None) -> dict:
+    """The manifest an image's release.json signs, once its signature checks out. The image's files
+    are checked against it by flasher.read_image. Raises ValueError."""
+    body = _signed_body(Path(path), keys)
+    if not isinstance(body, dict) or body.get("kind") != FIRMWARE_KIND:
+        raise ValueError(f"{Path(path).name} isn't a firmware release")
+    return {k: v for k, v in body.items() if k != "kind"}
+
+
+def _signed_body(path: Path, keys: dict[str, bytes] | None):
+    """What `path` signs, parsed, once the signature is one of ours. Raises ValueError."""
     try:
         envelope = json.loads(path.read_text())
         text, kid, sig = envelope["body"], envelope["key"], envelope["sig"]
@@ -94,14 +112,23 @@ def open_release(path: Path, keys: dict[str, bytes] | None = None) -> dict:
         raise ValueError(f"{path.name} is signed by a key this app doesn't trust")
     if not ed25519.verify(public, text.encode(), signature):
         raise ValueError(f"{path.name} has a signature that doesn't match it")
+    try:
+        return json.loads(text)
+    except ValueError as e:
+        raise ValueError(f"{path.name} isn't a release: {e}") from e
 
+
+def open_release(path: Path, keys: dict[str, bytes] | None = None) -> dict:
+    """The release described in `path`, once its signature and its archive have been checked.
+    Raises ValueError, with a reason someone could act on, for anything else."""
+    path = Path(path)
+    body = _signed_body(path, keys)
     # Signed by us, so from here on a problem is a mistake, not an attack. Still checked.
     try:
-        body = json.loads(text)
         kind, version, api, idf = body["kind"], body["version"], body["board_api"], body["idf"]
         source = body["source"]
         name, size, digest = source["file"], source["size"], source["sha256"]
-    except (ValueError, KeyError, TypeError) as e:
+    except (KeyError, TypeError) as e:
         raise ValueError(f"{path.name} is missing something: {e}") from e
     if kind != KIND or not isinstance(version, str) or not VERSION.fullmatch(version):
         raise ValueError(f"{path.name} isn't a core release")
