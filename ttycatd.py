@@ -5,6 +5,7 @@
   ttycatd.py demo                the design's sample data (nothing is answered)
   ttycatd.py hook install|remove|status   the Claude Code permission hook
   ttycatd.py pet [--name NAME]   see the pet, or rename it
+  ttycatd.py status              the board the running daemon talks to: its build, and the last flash
   ttycatd.py shot out.png        save the board's current frame
   ttycatd.py tap X Y | swipe L|R|U|D | goto SCREEN     drive a running daemon
   ttycatd.py scene NAME | silence SECONDS              demo states, for testing
@@ -271,7 +272,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         shot_parts[m["i"]] = m["d"]
                         if len(shot_parts) == m["n"] and shot_client:
                             frame = b"".join(base64.b64decode(shot_parts[i]) for i in range(m["n"]))
-                            shot_client.sendall(frame)
+                            # its size first: boards' screens differ
+                            shot_client.sendall(struct.pack(">HH", m.get("w", 240), m.get("h", 320)) + frame)
                             shot_client.close()
                             shot_client, shot_parts = None, {}
                     elif t == "hello" and time.monotonic() >= silent_until:
@@ -496,7 +498,7 @@ def ctl_send(cmd: dict, want_reply=False) -> bytes:
         return b""
     s.settimeout(30)
     data = bytearray()
-    while len(data) < 240 * 320 * 2:
+    while True:  # the daemon hangs up when it's said everything
         part = s.recv(65536)
         if not part:
             break
@@ -585,6 +587,7 @@ def main():
     s = sub.add_parser("flash", help="put a build on the board, through the running daemon")
     s.add_argument("folder", help="from tools/firmware_bundle.py")
     s.add_argument("--replace", action="store_true", help="overwrite custom firmware, or a port that stays silent")
+    sub.add_parser("status", help="the board and the last flash, as JSON: not the sessions")
     s = sub.add_parser("shot")
     s.add_argument("path")
     s = sub.add_parser("tap")
@@ -651,11 +654,16 @@ def main():
                 sys.exit(flash["msg"])
             if flash["state"] == "done":
                 break
+    elif a.cmd == "status":
+        status = json.loads(ctl_send({"t": "status"}, want_reply=True))
+        print(json.dumps({k: status.get(k) for k in ("board", "flash")}, indent=2))
     elif a.cmd == "shot":
-        frame = ctl_send({"t": "shot"}, want_reply=True)
-        if len(frame) != 240 * 320 * 2:
+        reply = ctl_send({"t": "shot"}, want_reply=True)
+        w, h = struct.unpack(">HH", reply[:4]) if len(reply) >= 4 else (0, 0)
+        frame = reply[4:]
+        if not w or len(frame) != w * h * 2:
             sys.exit(f"incomplete frame: {len(frame)} bytes")
-        rgb565_to_png(a.path, frame)
+        rgb565_to_png(a.path, frame, w, h)
     elif a.cmd == "tap":
         ctl_send({"t": "tap", "x": a.x, "y": a.y})
     elif a.cmd == "swipe":
