@@ -37,6 +37,7 @@ from pathlib import Path
 import art
 import plugins
 import release
+import updates
 from approvals import HOOK_SOCK, Hub, HubScope
 from claude_sessions import ClaudeSessions, RunningAgents, is_session_pane
 from codex_threads import CodexThreads
@@ -244,6 +245,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
     board = Board(port)
     flasher = Flasher(log)
     updater = Updater(Boards(), release.Releases([RELEASES_IN_APP, RELEASES_ADDED]), devices, log)
+    checker = updates.Checker(log=log)
     CTL_PATH.parent.mkdir(mode=0o700, exist_ok=True)
     CTL_PATH.unlink(missing_ok=True)
     ctl = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -285,6 +287,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                 updater.on_output()
             flasher.tick()
             updater.tick(flasher, board.path)
+            if board.fd is not None and board.speaks and not flasher.busy and not updater.busy:
+                checker.tick(board.name, board.fw, board.key)
             for sock in r:
                 if sock is ctl or sock == board.fd or sock == flasher.fd or sock == updater.fd:
                     continue
@@ -374,9 +378,11 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         pass
                     conn.close()
                     continue
-                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update", "name"):  # the Mac app
+                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update", "name", "updates"):  # the Mac app
                     if cmd["t"] == "status":
                         reply = status_message(source, board, flasher, look, devices, updater)
+                        reply["updates"] = {**checker.info(), "firmware": checker.firmware_for(board.name, board.fw)
+                                            if board.fd is not None else None}
                         reply["art"] = {"showing": showing["id"] if showing else None, "drawn": bool(drawn())}
                     elif cmd["t"] == "look":
                         reply = look.set(cmd.get("skin"), cmd.get("accent"))
@@ -389,6 +395,9 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         reply = start_core_update(board, flasher, updater)
                     elif cmd["t"] == "name":
                         reply = set_label(board, devices, cmd)
+                    elif cmd["t"] == "updates":
+                        checker.set_enabled(cmd.get("check") is not False)
+                        reply = {"ok": True, "msg": ""}
                     elif cmd["t"] == "activity":
                         reply = {"items": source.history(str(cmd.get("id", "")), APP_ACTIVITY_ROWS, False)}
                     else:
@@ -792,7 +801,7 @@ def main():
                 break
     elif a.cmd == "status":
         status = json.loads(ctl_send({"t": "status"}, want_reply=True))
-        print(json.dumps({k: status.get(k) for k in ("board", "flash", "core", "art")}, indent=2))
+        print(json.dumps({k: status.get(k) for k in ("board", "flash", "core", "updates", "art")}, indent=2))
     elif a.cmd == "register-board":
         try:
             reg = Boards().register(Path(a.folder), Path(a.build), Path(a.idf) if a.idf else None)
