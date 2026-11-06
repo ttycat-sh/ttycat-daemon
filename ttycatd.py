@@ -44,7 +44,7 @@ from boards import Boards
 from core_update import Updater
 from flasher import Flasher
 from look import Look
-from devices import NOT_ALLOWED, Devices, clean_name, is_custom
+from devices import NOT_ALLOWED, Devices, clean_label, clean_name, is_custom
 from petstate import PET_FILE, Pet
 import token_days
 from sources import DemoSource, Fleet, HerdrSource
@@ -93,6 +93,8 @@ class Board:
         self.name: str | None = None  # which folder in firmware/boards it was built from
         self.protocol = None
         self.art = None  # the art format it draws, if it said
+        self.id: str | None = None  # its chip's own ID: firmware that says one keeps a name too
+        self.label: str | None = None  # the name the person gave it, as it said
         self.silent: set[str] = set()
         self.asks = 0  # times it's asked for a prompt to be shown on the Mac
         self.asked: str | None = None
@@ -122,7 +124,15 @@ class Board:
         self.name = clean_name(m.get("b"))
         self.protocol = m.get("p")
         self.art = m.get("art")
+        chip = m.get("id")
+        self.id = chip if isinstance(chip, str) and re.fullmatch(r"[0-9a-f]{12}", chip) else None
+        self.label = clean_label(m.get("nm")) or None
         self.silent.discard(self.path)
+
+    @property
+    def key(self) -> str | None:
+        """Which board this is, for its name on this Mac: its chip, or failing that its model."""
+        return self.id or (f"model:{self.name}" if self.name else None)
 
     @property
     def speaks(self) -> bool:
@@ -299,6 +309,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                     elif t == "hello" and time.monotonic() >= silent_until:
                         board.said_hello(m)
                         board.send({"t": "hello", "p": PROTOCOL})
+                        sync_label(board, devices)
                         if board.speaks and drawn():  # before the state that names it
                             board.send(drawn())
                         if flasher.board_said(board.fw) and not updater.busy and is_custom(board.fw):
@@ -363,7 +374,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         pass
                     conn.close()
                     continue
-                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update"):  # the Mac app
+                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update", "name"):  # the Mac app
                     if cmd["t"] == "status":
                         reply = status_message(source, board, flasher, look, devices, updater)
                         reply["art"] = {"showing": showing["id"] if showing else None, "drawn": bool(drawn())}
@@ -376,6 +387,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         reply = start_flash(board, flasher, cmd)
                     elif cmd["t"] == "core-update":
                         reply = start_core_update(board, flasher, updater)
+                    elif cmd["t"] == "name":
+                        reply = set_label(board, devices, cmd)
                     elif cmd["t"] == "activity":
                         reply = {"items": source.history(str(cmd.get("id", "")), APP_ACTIVITY_ROWS, False)}
                     else:
@@ -466,6 +479,7 @@ def status_message(source, board: Board, flasher: Flasher | None = None, look: L
     msg.update(t="status", pid=os.getpid(), term=getattr(source, "focus_app", None),
                board={"connected": board.fd is not None and board.fw is not None, "port": board.path, "fw": board.fw,
                       "dim": board.dim, "art": board.art, "approves": (devices or Devices()).may_approve(board.fw), "name": board.name,
+                      "label": board.label or (devices or Devices()).label(board.key) if board.fw is not None else None,
                       "outdated": board.fw is not None and not board.speaks, "silent": sorted(board.silent),
                       "probing": board.fd is not None and board.fw is None and board.path not in board.silent,
                       "asks": board.asks, "asked": board.asked},
@@ -515,6 +529,37 @@ def register_flashed(image: str | None, boards: Boards | None = None):
         log("board not registered for updates:", e)
         return
     log("board registered for updates:", reg["name"], "from", reg["folder"])
+
+
+def sync_label(board: Board, devices: Devices):
+    """The board's own name wins, and this Mac keeps a copy. A board that can keep one but has none,
+    such as after its storage was erased, gets this Mac's back."""
+    kept = devices.label(board.key)
+    model = f"model:{board.name}" if board.name else None
+    if board.id and not kept and model and devices.label(model):
+        # Named on this Mac before its firmware could keep a name: the name moves to this chip.
+        kept = devices.label(model)
+        devices.set_label(board.id, kept)
+        devices.set_label(model, "")
+    if board.label:
+        if board.label != kept:
+            devices.set_label(board.key, board.label)
+    elif kept and board.id and board.speaks:
+        board.send({"t": "name", "name": kept})
+        board.label = kept
+
+
+def set_label(board: Board, devices: Devices, cmd: dict) -> dict:
+    """Setup's name for the board that's plugged in. "" takes it away."""
+    if board.fd is None or board.fw is None or not board.key:
+        return {"ok": False, "msg": "no board connected"}
+    name = clean_label(cmd.get("name"))
+    devices.set_label(board.key, name)
+    if board.id and board.speaks:
+        board.send({"t": "name", "name": name})
+    board.label = name or None
+    log("board named", repr(name) if name else "nothing")
+    return {"ok": True, "msg": ""}
 
 
 def start_core_update(board: Board, flasher: Flasher, updater: Updater) -> dict:
