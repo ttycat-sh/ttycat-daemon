@@ -85,20 +85,21 @@ class AppBuild(unittest.TestCase):
 
     def test_a_dev_release_trusts_dev_too_and_asks_dev(self):
         said, out = self.run_tool("0.2.0-dev.3")
-        self.assertEqual(said, "0.2.0 2000003")
+        self.assertEqual(said, "0.2.0 2000003 " + app_build.SPARKLE_KEYS["dev"])
         info = json.loads((out / "build.json").read_text())
         self.assertEqual((info["env"], info["updates"], info["version"]), ("dev", app_build.UPDATES["dev"], "0.2.0-dev.3"))
+        self.assertEqual(info["appcast"], "https://api.dev.ttycat.sh/v1/appcast")
         self.assertIn("2d95d7c3a1680322", self.key_ids(out))
 
     def test_a_prod_release_trusts_prod_only(self):
         said, out = self.run_tool("0.2.0")
-        self.assertEqual(said, "0.2.0 2000999")
+        self.assertEqual(said, "0.2.0 2000999 " + app_build.SPARKLE_KEYS["prod"])
         self.assertEqual(json.loads((out / "build.json").read_text())["env"], "prod")
         self.assertNotIn("2d95d7c3a1680322", self.key_ids(out))
 
     def test_without_a_version_its_a_developers_build(self):
         said, out = self.run_tool()
-        self.assertEqual(said, "0.0.0 0")
+        self.assertEqual(said, "0.0.0 0 -")  # no key: a developer's build never updates itself
         self.assertFalse((out / "build.json").exists())
         self.assertTrue((out / "release_keys.json").exists())  # the app trusts prod's keys, as a release would
 
