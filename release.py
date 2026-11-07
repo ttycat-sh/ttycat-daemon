@@ -26,6 +26,7 @@ import shutil
 import tarfile
 from pathlib import Path
 
+import build_info
 import ed25519
 
 KIND = "ttycat-core"
@@ -50,8 +51,9 @@ def newer(a: str, b: str) -> bool:
     return version_key(a) > version_key(b)
 
 
-def trusted_keys(path: Path = KEYS_FILE) -> dict[str, bytes]:
-    """By key id. Anything unreadable trusts nothing."""
+def trusted_keys(path: Path = KEYS_FILE, build: dict | None = None) -> dict[str, bytes]:
+    """By key id. Anything unreadable trusts nothing. TTYCAT_TRUST_KEY only counts in a developer's
+    build: a release trusts the keys it was built with, and nothing its environment says."""
     keys = {}
     try:
         listed = json.loads(path.read_text()).get("keys", [])
@@ -64,7 +66,7 @@ def trusted_keys(path: Path = KEYS_FILE) -> dict[str, bytes]:
             continue
         if len(public) == 32:
             keys[key_id(public)] = public
-    dev = os.environ.get(DEV_KEY_ENV)
+    dev = None if build_info.is_release(build) else os.environ.get(DEV_KEY_ENV)
     if dev:
         try:
             public = base64.b64decode(dev, validate=True)

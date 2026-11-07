@@ -1,0 +1,9 @@
+{
+ "keys": [
+  {
+   "id": "2d95d7c3a1680322",
+   "key": "hqi0E2I5/R9VxoKQfhQDiZPZxA3Yl7fLem5dWrkSy50=",
+   "note": "dev: signs vX.Y.Z-dev.N releases. Only dev builds of the app trust it (tools/app_build.py)"
+  }
+ ]
+}

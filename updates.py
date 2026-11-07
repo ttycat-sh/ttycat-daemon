@@ -24,13 +24,14 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import build_info
 import release
 from boards import Boards, board_api, idf_version
 from devices import is_custom
 from flasher import read_image
 
 UPDATES_URL = "https://api.ttycat.sh/v1/updates"
-URL_ENV = "TTYCAT_UPDATES_URL"  # a debug build's server, such as ttycat-server's compose.yaml: http allowed
+URL_ENV = "TTYCAT_UPDATES_URL"  # a developer's build's server, such as ttycat-server's compose.yaml: http allowed
 HOME = Path.home() / ".ttycat"  # updates.json (the setting), install-id, firmware/, core/releases/
 EVERY_S = 3600
 TIMEOUT_S = 30
@@ -52,9 +53,11 @@ def fetch(url: str, limit: int) -> bytes:
 
 class Checker:
     def __init__(self, boards: Boards | None = None, url: str | None = None, home: Path = HOME,
-                 keys: dict[str, bytes] | None = None, log=print, get=fetch):
-        env = os.environ.get(URL_ENV)
-        self.url = url or env or UPDATES_URL
+                 keys: dict[str, bytes] | None = None, log=print, get=fetch, build: dict | None = None):
+        info = build_info.read() if build is None else build
+        # A release asks the server it was built for (build.json), and never one its environment names.
+        env = None if build_info.is_release(info) else os.environ.get(URL_ENV)
+        self.url = url or env or info.get("updates") or UPDATES_URL
         self.plain_http = bool(url or env)  # only ever for a server someone chose, such as one on this Mac
         self.boards = boards or Boards()
         self.home = Path(home)
