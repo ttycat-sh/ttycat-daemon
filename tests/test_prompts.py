@@ -1406,12 +1406,21 @@ class HookInstall(unittest.TestCase):
             self.assertFalse(ttycatd._is_ours(self.hook_entry(command)), command)
 
     def test_repair_leaves_a_working_entry_alone(self):
-        self.with_entry(f"python3 -I {self.tmp.name}/daemon/hook.py")
+        hook = f"{self.tmp.name}/daemon/hook.py"
+        self.with_entry(f"test -f {hook} || exit 0; exec python3 -I {hook}")
         Path(self.tmp.name, "daemon").mkdir()
         Path(self.tmp.name, "daemon", "hook.py").write_text("")
         before = self.path.read_text()
         self.assertEqual(ttycatd.hook_command("repair", self.path), "installed")
         self.assertEqual(self.path.read_text(), before)
+
+    def test_repair_guards_an_entry_from_before_the_guard(self):
+        hook = Path(self.tmp.name, "daemon", "hook.py")
+        hook.parent.mkdir()
+        hook.write_text("")
+        self.with_entry(f"python3 -I {hook}")
+        self.assertEqual(ttycatd.hook_command("repair", self.path), "installed")
+        self.assertEqual(self.commands(), ["other-tool", ttycatd.hook_shell_command()])
 
     def test_repair_never_adds_a_hook_you_didnt_choose(self):
         before = self.path.read_text()
@@ -1430,12 +1439,25 @@ class HookInstall(unittest.TestCase):
         with mock.patch.object(ttycatd.sys, "executable", "/Applications/ttycat.app/Contents/Resources/python/bin/python3"), \
                 mock.patch.object(ttycatd, "HOOK_SCRIPT", Path("/Applications/ttycat.app/Contents/Resources/daemon/hook.py")):
             words = shlex.split(ttycatd.hook_shell_command())
-        self.assertEqual(words[0], "/Applications/ttycat.app/Contents/Resources/python/bin/python3")
-        self.assertEqual(words[1:], ["-I", "/Applications/ttycat.app/Contents/Resources/daemon/hook.py"])
+        hook = "/Applications/ttycat.app/Contents/Resources/daemon/hook.py"
+        self.assertEqual(words[2], hook)
+        self.assertEqual(words[-3:], ["/Applications/ttycat.app/Contents/Resources/python/bin/python3", "-I", hook])
 
     def test_outside_the_app_it_uses_the_shells_python(self):
         with mock.patch.object(ttycatd.sys, "executable", "/opt/homebrew/bin/python3.14"):
-            self.assertTrue(ttycatd.hook_shell_command().startswith("python3 -I "))
+            self.assertIn("; exec python3 -I ", ttycatd.hook_shell_command())
+
+    def test_an_app_thrown_away_leaves_a_hook_that_does_nothing(self):
+        script = Path(self.tmp.name, "Some App.app", "daemon", "hook.py")
+        with mock.patch.object(ttycatd, "HOOK_SCRIPT", script):
+            command = ttycatd.hook_shell_command()
+        self.assertTrue(ttycatd._is_ours(self.hook_entry(command)))
+        gone = subprocess.run(["sh", "-c", command], capture_output=True, text=True, input="{}")
+        self.assertEqual((gone.returncode, gone.stdout, gone.stderr), (0, "", ""))
+        script.parent.mkdir(parents=True)
+        script.write_text("import sys; print('asked', sys.stdin.read())")
+        there = subprocess.run(["sh", "-c", command], capture_output=True, text=True, input="{}")
+        self.assertEqual(there.stdout.strip(), "asked {}")
 
     def test_broken_settings_are_left_alone(self):
         self.path.write_text("{broken")

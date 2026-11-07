@@ -686,9 +686,12 @@ def _is_ours(entry: dict) -> bool:
 
 
 def hook_shell_command() -> str:
-    """The app's own Python when it's in the app: there may be no other. In the repo, python3."""
+    """The app's own Python when it's in the app: there may be no other. In the repo, python3.
+    An app thrown away without turning the hook off leaves an entry that does nothing: Claude's own
+    prompt stands, with no error on every one of them."""
     python = sys.executable if ".app/Contents/Resources/python/" in sys.executable else "python3"
-    return f"{shlex.quote(python)} -I {shlex.quote(str(HOOK_SCRIPT))}"
+    hook = shlex.quote(str(HOOK_SCRIPT))
+    return f"test -f {hook} || exit 0; exec {shlex.quote(python)} -I {hook}"
 
 
 def _files_exist(command: str) -> bool:
@@ -712,7 +715,8 @@ def hook_command(action: str, path: Path = CLAUDE_SETTINGS) -> str:
     if action == "repair":
         # The app was moved or replaced: only ever fixes an entry you already chose to have.
         commands = [str(h.get("command", "")) for e in ours for h in e.get("hooks", [])]
-        if not ours or all(_files_exist(c) for c in commands):
+        # Also one from before the guard (hook_shell_command), which errors once the app is thrown away.
+        if not ours or all(_files_exist(c) and c.startswith("test -f ") for c in commands):
             return "installed" if ours else "not installed"
         action = "install"
     others = [e for e in entries if not _is_ours(e)]
