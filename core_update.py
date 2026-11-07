@@ -75,17 +75,19 @@ class Updater:
         return self.state in ("building", "writing", "putting-back")
 
     def offer(self, name: str | None, fw: str | None) -> dict:
-        """What Setup shows for the board that's plugged in. Reading it changes nothing."""
+        """What Setup shows for the board that's plugged in. Reading it changes nothing. Registered only
+        while it runs the build this Mac has a copy of: any other has nothing to go back to. `folder` is
+        the one registered for it last, to start from when choosing it again."""
         reg = self.boards.get(name)
         core = core_of(fw)
         best = self.releases.best()
-        info = {"registered": reg is not None, "core": core, "available": None, "blocked": "",
-                "state": "idle", "pct": 0, "msg": "", "to": None}
+        info = {"registered": reg is not None and reg["fw"] == fw, "folder": reg["folder"] if reg else None,
+                "core": core, "available": None, "blocked": "", "state": "idle", "pct": 0, "msg": "", "to": None}
         if self.busy or (self.reg and self.reg["name"] == name):  # the last update's outcome is that board's only
             info.update(state=self.state, pct=self.pct, msg=self.msg, to=self.to)
         if best and core and release.newer(best["version"], core):
             info["available"] = best["version"]
-            info["blocked"] = self.blocked(reg, best, fw) if reg else ""
+            info["blocked"] = self.blocked(reg, best, fw) if info["registered"] else ""
         return info
 
     def blocked(self, reg: dict, rel: dict, fw: str | None) -> str:
@@ -99,7 +101,7 @@ class Updater:
         if not (have + ".").startswith(rel["idf"] + "."):
             return f"This update needs ESP-IDF {rel['idf']}" + (f", and this Mac has {have}." if have else ".")
         if fw != reg["fw"]:
-            return "It runs a build the app didn't make. Ask Claude to register the board again."
+            return "It runs a build this Mac has no copy of. Choose its folder in Setup again."
         return ""
 
     def start(self, name: str | None, fw: str | None, port: str | None, write) -> tuple[bool, str]:

@@ -270,7 +270,8 @@ class Registered(unittest.TestCase):
         make_release(self.releases, "0.11.0")
         offer = up.offer("my-board", fw)
         self.assertEqual((offer["available"], offer["blocked"], offer["registered"]), ("0.11.0", "", True))
-        self.assertIn("register", up.offer("my-board", "custom-0.10.1-00000000")["blocked"])
+        other = up.offer("my-board", "custom-0.10.1-00000000")  # a build this Mac has no copy of: register it again
+        self.assertEqual((other["registered"], other["blocked"], other["folder"]), (False, "", str(self.folder.resolve())))
         self.assertFalse(up.offer("unknown-board", "custom-0.10.1-00000000")["registered"])
         self.assertIsNone(up.offer("my-board", "0.10.1")["available"])  # ttycat's own: the app's image updates it
 

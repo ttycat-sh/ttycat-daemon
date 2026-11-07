@@ -6,7 +6,7 @@
   ttycatd.py hook install|remove|status   the Claude Code permission hook
   ttycatd.py pet [--name NAME]   see the pet, or rename it
   ttycatd.py status              the board the running daemon talks to: its build, and the last flash
-  ttycatd.py register-board FOLDER --build DIR   a board of your own, so the app can update its core
+  ttycatd.py register-board FOLDER [--build DIR]   a board of your own, so the app can update its core
   ttycatd.py core-add RELEASE.json | core-update   a signed core release, and building it for the board
   ttycatd.py shot out.png        save the board's current frame
   ttycatd.py tap X Y | swipe L|R|U|D | goto SCREEN     drive a running daemon
@@ -25,6 +25,7 @@ import os
 import re
 import select
 import shlex
+import shutil
 import signal
 import socket
 import struct
@@ -41,7 +42,7 @@ import updates
 from approvals import HOOK_SOCK, Hub, HubScope
 from claude_sessions import ClaudeSessions, RunningAgents, is_session_pane
 from codex_threads import CodexThreads
-from boards import Boards
+from boards import Boards, built_with, check_folder, core_of, layout
 from core_update import Updater
 from flasher import Flasher
 from look import Look
@@ -318,6 +319,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                             board.send(drawn())
                         if flasher.board_said(board.fw) and not updater.busy and is_custom(board.fw):
                             register_flashed(flasher.image)
+                            if flasher.job == "read":  # registering kept its own copy
+                                shutil.rmtree(flasher.image, ignore_errors=True)
                         next_beat = 0
                         if not board.speaks:
                             log("firmware", board.fw, "speaks protocol", board.protocol, "and this speaks", PROTOCOL)
@@ -378,7 +381,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         pass
                     conn.close()
                     continue
-                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update", "name", "updates"):  # the Mac app
+                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update", "register", "name", "updates"):  # the Mac app
                     if cmd["t"] == "status":
                         reply = status_message(source, board, flasher, look, devices, updater)
                         reply["updates"] = {**checker.info(), "firmware": checker.firmware_for(board.name, board.fw)
@@ -393,6 +396,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         reply = start_flash(board, flasher, cmd)
                     elif cmd["t"] == "core-update":
                         reply = start_core_update(board, flasher, updater)
+                    elif cmd["t"] == "register":
+                        reply = start_register(board, flasher, updater, cmd)
                     elif cmd["t"] == "name":
                         reply = set_label(board, devices, cmd)
                     elif cmd["t"] == "updates":
@@ -538,6 +543,35 @@ def register_flashed(image: str | None, boards: Boards | None = None):
         log("board not registered for updates:", e)
         return
     log("board registered for updates:", reg["name"], "from", reg["folder"])
+
+
+def start_register(board: Board, flasher: Flasher, updater: Updater, cmd: dict, boards: Boards | None = None) -> dict:
+    """Setup's "Choose its folder" for a board of the person's own. The folder is where its code is;
+    what it runs now is read back off it, as the copy to put back if an update fails. Nothing is
+    written to it. Being allowed to approve doesn't carry over to the first update: the folder chosen
+    may not be what this build came from, so the build after it is a new one to allow."""
+    boards = boards or Boards()
+    if board.fd is None or board.fw is None or not board.name:
+        return {"ok": False, "msg": "no board connected"}
+    if not core_of(board.fw):
+        return {"ok": False, "msg": f"it runs {board.fw}, not a build of its own"}
+    if flasher.busy or updater.busy:
+        return {"ok": False, "msg": "already updating"}
+    chosen = Path(str(cmd.get("folder", "")))
+    try:
+        folder, idf = check_folder(built_with(chosen, board.name) or chosen)
+        if folder.name != board.name:
+            raise ValueError(f"this board is {board.name}, and that folder is {folder.name}")
+        where = layout(folder)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "msg": str(e)}
+    source = {"folder": str(folder), "idf": str(idf), "hash": ""}  # "": nothing to carry approving over from
+    ok, msg = flasher.start_read(board.path, board.fw, board.name, where, boards.root / board.name / "read", source)
+    if ok:
+        board.silent.clear()
+        if board.fd is not None:
+            board.close()  # esptool needs the port to itself
+    return {"ok": ok, "msg": msg}
 
 
 def sync_label(board: Board, devices: Devices):
@@ -726,7 +760,8 @@ def main():
     sub.add_parser("status", help="the board and the last flash, as JSON: not the sessions")
     s = sub.add_parser("register-board", help="a board of your own, so the app can build it new core releases")
     s.add_argument("folder", help="the board's folder")
-    s.add_argument("--build", required=True, help="the build of it the board runs now, such as firmware/build-NAME")
+    s.add_argument("--build", help="the build of it the board runs now, such as firmware/build-NAME. "
+                                   "Without it, the running daemon reads what the board runs back off it")
     s.add_argument("--idf", help="ESP-IDF's folder (default: the newest in ~/esp)")
     s = sub.add_parser("core-add", help="a signed core release, from tools/release_core.py")
     s.add_argument("file", help="ttycat-core-VERSION.json, with its .tar.gz beside it")
@@ -802,6 +837,22 @@ def main():
     elif a.cmd == "status":
         status = json.loads(ctl_send({"t": "status"}, want_reply=True))
         print(json.dumps({k: status.get(k) for k in ("board", "flash", "core", "updates", "art")}, indent=2))
+    elif a.cmd == "register-board" and not a.build:
+        reply = json.loads(ctl_send({"t": "register", "folder": os.path.abspath(a.folder)}, want_reply=True))
+        if not reply["ok"]:
+            sys.exit(f"register-board: {reply['msg']}")
+        while True:
+            time.sleep(1)
+            status = json.loads(ctl_send({"t": "status"}, want_reply=True))
+            flash = status["flash"]
+            print(flash["state"], f'{flash["pct"]}%' if flash["state"] == "reading" else "", flush=True)
+            if flash["state"] == "failed":
+                sys.exit(f"register-board: {flash['msg']}")
+            if flash["state"] == "done":
+                break
+        if not (status.get("core") or {}).get("registered"):
+            sys.exit("register-board: read, but not registered: see ~/.ttycat/ttycatd.log")
+        print("registered", status["board"]["name"], "from", os.path.abspath(a.folder))
     elif a.cmd == "register-board":
         try:
             reg = Boards().register(Path(a.folder), Path(a.build), Path(a.idf) if a.idf else None)
