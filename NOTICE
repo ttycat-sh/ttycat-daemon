@@ -1,0 +1,4 @@
+ttycat
+Copyright 2026 Jonas Duri
+
+Includes detection rules from herdr, Apache-2.0: see agent_rules.LICENSE.

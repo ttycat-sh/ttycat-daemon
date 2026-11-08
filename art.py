@@ -1,11 +1,11 @@
-"""Art for Bit's stage on the board: docs/PROTOCOL.md, "Art". The board checks everything again and draws
+"""Art for Bit's stage on the board: ttycat-firmware's docs/PROTOCOL.md, "Art". The board checks everything again and draws
 only what it can, so this only keeps out what no board would take."""
 from __future__ import annotations
 
 import json
 import re
 
-LINE_MAX = 8192  # ART_LINE_MAX in firmware/main/art.h
+LINE_MAX = 8192  # ART_LINE_MAX in ttycat-firmware's main/art.h
 ID = re.compile(r"[A-Za-z0-9-]{1,11}")
 
 

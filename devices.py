@@ -7,7 +7,7 @@ going on, open a session and Deny, because those can only stop an agent. Approvi
 person to turn it on, for that device, in Setup.
 
 A device is known by the name it gives in `hello`. Only a release build gives a plain version
-number (FW_NAME in firmware/main/model.h). Anything built from source gives a name that comes from
+number (FW_NAME in ttycat-firmware's main/model.h). Anything built from source gives a name that comes from
 its source, so it counts as someone's own, and each change gets asked about again.
 
 This guards against accidents, such as a lamp with a button or an agent's overeager firmware. It

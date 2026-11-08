@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import art
 import ttycatd
 
-SNOW = Path(__file__).resolve().parents[2] / "tools" / "preview" / "art" / "snow.json"
+SNOW = Path(__file__).resolve().parent / "data" / "snow.json"  # the same as tools/preview/art in ttycat-firmware
 
 
 class Source:

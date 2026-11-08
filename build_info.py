@@ -1,4 +1,4 @@
-"""What kind of build this daemon is part of, from build.json beside it. app/build.sh writes one into
+"""What kind of build this daemon is part of, from build.json beside it. ttycat-app's build.sh writes one into
 every release, from TTYCAT_VERSION:
 
   {"release": true, "env": "dev" or "prod", "version": "0.2.0-dev.1", "updates": "https://..."}

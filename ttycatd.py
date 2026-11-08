@@ -66,7 +66,7 @@ HEARTBEAT_S = 1.0
 HELLO_WAIT_S = 6.0  # a board says what it runs after 2 s without hearing anything, and booting takes a moment
 PROTOCOL = 1  # what a device has to speak. Goes up when a change would break one that's already built
 RELEASES_ADDED = Path.home() / ".ttycat" / "core" / "releases"  # from core-add, and later a server
-RELEASES_IN_APP = Path(__file__).resolve().parent.parent / "core"  # app/build.sh puts the app's own here
+RELEASES_IN_APP = Path(__file__).resolve().parent.parent / "core"  # ttycat-app's build.sh puts the app's own here
 SERIAL_PORTS = ("/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.wchusbserial*", "/dev/cu.SLAB_USBtoUART*")
 
 
@@ -92,7 +92,7 @@ class Board:
         self.want = port
         self.path: str | None = None
         self.fw: str | None = None
-        self.name: str | None = None  # which folder in firmware/boards it was built from
+        self.name: str | None = None  # which folder in ttycat-firmware's boards/ it was built from
         self.protocol = None
         self.art = None  # the art format it draws, if it said
         self.id: str | None = None  # its chip's own ID: firmware that says one keeps a name too
@@ -677,8 +677,9 @@ def ctl_send(cmd: dict, want_reply=False) -> bytes:
     return bytes(data)
 
 
-# Wherever it's run from: this repo, or inside the app, wherever the app has been put.
-OUR_HOOK = re.compile(r"(?:^|[\s/'\"])daemon/hook\.py['\"]?\s*$")
+# Wherever it's run from: a ttycat-daemon checkout, the app's daemon/ submodule, or inside the app,
+# wherever the app has been put.
+OUR_HOOK = re.compile(r"(?:^|[\s/'\"])(?:ttycat-)?daemon/hook\.py['\"]?\s*$")
 
 
 def _is_ours(entry: dict) -> bool:
@@ -764,7 +765,7 @@ def main():
     sub.add_parser("status", help="the board and the last flash, as JSON: not the sessions")
     s = sub.add_parser("register-board", help="a board of your own, so the app can build it new core releases")
     s.add_argument("folder", help="the board's folder")
-    s.add_argument("--build", help="the build of it the board runs now, such as firmware/build-NAME. "
+    s.add_argument("--build", help="the build of it the board runs now, such as build-NAME in ttycat-firmware. "
                                    "Without it, the running daemon reads what the board runs back off it")
     s.add_argument("--idf", help="ESP-IDF's folder (default: the newest in ~/esp)")
     s = sub.add_parser("core-add", help="a signed core release, from tools/release_core.py")
@@ -781,7 +782,7 @@ def main():
     s.add_argument("screen")
     s = sub.add_parser("scene")
     s.add_argument("name")
-    s = sub.add_parser("art", help="show this art on Bit's stage (docs/PROTOCOL.md, \"Art\"), until the daemon stops")
+    s = sub.add_parser("art", help="show this art on Bit's stage (ttycat-firmware's docs/PROTOCOL.md, \"Art\"), until the daemon stops")
     s.add_argument("file", help="a JSON file with the art message, or off")
     s = sub.add_parser("silence")
     s.add_argument("seconds", type=float)

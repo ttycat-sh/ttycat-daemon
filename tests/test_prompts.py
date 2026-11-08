@@ -1396,6 +1396,10 @@ class HookInstall(unittest.TestCase):
         ttycatd.hook_command("install", self.path)
         self.assertEqual(len(self.commands()), 2)  # replaced, not added to
 
+    def test_an_entry_from_a_daemon_checkout_counts_as_ours(self):
+        self.with_entry("python3 -I /Users/x/ttycat-daemon/hook.py")
+        self.assertEqual(ttycatd.hook_command("status", self.path), "installed")
+
     def test_an_entry_in_an_app_with_a_space_in_its_name_counts_as_ours(self):
         self.with_entry("'/Applications/ttycat.app/Contents/Resources/python/bin/python3' -I "
                         "'/Applications/ttycat.app/Contents/Resources/daemon/hook.py'")
