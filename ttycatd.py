@@ -566,6 +566,15 @@ def start_register(board: Board, flasher: Flasher, updater: Updater, cmd: dict, 
         where = layout(folder)
     except (ValueError, OSError) as e:
         return {"ok": False, "msg": str(e)}
+    reg = boards.get(board.name)
+    if reg and reg["fw"] == board.fw and Path(reg["image"]).is_dir():
+        # Registered, and it runs the build kept for it: only the folder moved.
+        try:
+            boards.moved(board.name, folder, idf)
+        except (ValueError, OSError) as e:
+            return {"ok": False, "msg": str(e)}
+        log("board", board.name, "is now built from", folder)
+        return {"ok": True, "msg": ""}
     source = {"folder": str(folder), "idf": str(idf), "hash": ""}  # "": nothing to carry approving over from
     ok, msg = flasher.start_read(board.path, board.fw, board.name, where, boards.root / board.name / "read", source)
     if ok:
