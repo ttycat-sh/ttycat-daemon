@@ -216,5 +216,14 @@ def enc(text):
     return base64.b64encode(text.encode()).decode()
 
 
+
+class TheRulesAreThere(unittest.TestCase):
+    def test_herdrs_rules_for_the_agents_people_run(self):
+        rules = json.loads((DAEMON / "agent_rules.json").read_text())
+        self.assertTrue(rules["from"].startswith("herdr "), rules["from"])
+        for agent in ("claude", "codex", "opencode", "gemini", "pi"):
+            self.assertTrue(rules["agents"].get(agent, {}).get("rules"), agent)
+
+
 if __name__ == "__main__":
     unittest.main()
