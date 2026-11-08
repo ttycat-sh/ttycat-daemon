@@ -114,7 +114,8 @@ class Board:
         return next((path for path in ports if path not in self.silent), None)
 
     def give_up_if_silent(self, now: float):
-        if self.fd is None or self.fw is not None or now - self.opened_at < HELLO_WAIT_S:
+        # Against the deadline itself: just under a power of two, (opened_at + wait) - opened_at rounds below wait.
+        if self.fd is None or self.fw is not None or now < self.opened_at + HELLO_WAIT_S:
             return
         self.silent.add(self.path)
         if not self.want:
