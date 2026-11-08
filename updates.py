@@ -51,6 +51,37 @@ def fetch(url: str, limit: int) -> bytes:
     return data
 
 
+INSTALL_ID = re.compile(r"[0-9a-f]{32}")
+
+
+def install_id(home: Path) -> str:
+    """Random, made once for this Mac, and only for rollouts: it says nothing about anyone. Whichever
+    asks first makes it, this or the app (InstallID.swift), so a Mac without a board has one too. It's
+    made whole beside the real name and linked into place, which fails if the other got there first:
+    then both use the one that's there."""
+    path = home / "install-id"
+    for _ in range(3):
+        try:
+            found = path.read_text().strip()
+            if INSTALL_ID.fullmatch(found):
+                return found
+            path.unlink()  # not one of ours: make it again
+        except FileNotFoundError:
+            pass
+        home.mkdir(mode=0o700, exist_ok=True)
+        temp = home / f"install-id.{os.getpid()}.{secrets.token_hex(4)}"
+        made = secrets.token_hex(16)
+        temp.write_text(made)
+        try:
+            os.link(temp, path)
+            return made
+        except FileExistsError:
+            continue
+        finally:
+            temp.unlink(missing_ok=True)
+    raise OSError("couldn't make ~/.ttycat/install-id")
+
+
 class Checker:
     def __init__(self, boards: Boards | None = None, url: str | None = None, home: Path = HOME,
                  keys: dict[str, bytes] | None = None, log=print, get=fetch, build: dict | None = None):
@@ -86,18 +117,7 @@ class Checker:
         os.replace(temp, self.home / "updates.json")
 
     def install_id(self) -> str:
-        """Random, made once for this Mac, and only for rollouts: it says nothing about anyone."""
-        path = self.home / "install-id"
-        try:
-            found = path.read_text().strip()
-            if re.fullmatch(r"[0-9a-f]{32}", found):
-                return found
-        except OSError:
-            pass
-        made = secrets.token_hex(16)
-        self.home.mkdir(mode=0o700, exist_ok=True)
-        path.write_text(made)
-        return made
+        return install_id(self.home)
 
     def info(self) -> dict:
         with self.lock:

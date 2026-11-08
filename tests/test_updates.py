@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import os
 import sys
 import tarfile
 import tempfile
@@ -10,6 +11,7 @@ import unittest
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -95,6 +97,41 @@ class Server:
     def close(self):
         self.http.shutdown()
         self.http.server_close()
+
+
+class InstallID(unittest.TestCase):
+    """Made by whichever asks first, the daemon or the app (InstallID.swift), and then kept."""
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()) / ".ttycat"
+
+    def test_made_once_and_kept(self):
+        made = updates.install_id(self.home)
+        self.assertRegex(made, r"^[0-9a-f]{32}$")
+        self.assertEqual(updates.install_id(self.home), made)
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), ["install-id"])  # no temp files left
+
+    def test_one_the_app_made_is_used(self):
+        self.home.mkdir()
+        (self.home / "install-id").write_text("0123456789abcdef0123456789abcdef\n")
+        self.assertEqual(updates.install_id(self.home), "0123456789abcdef0123456789abcdef")
+
+    def test_a_broken_one_is_made_again(self):
+        self.home.mkdir()
+        (self.home / "install-id").write_text("not an id")
+        self.assertRegex(updates.install_id(self.home), r"^[0-9a-f]{32}$")
+
+    def test_when_the_app_gets_there_first_its_id_wins(self):
+        theirs = "fedcba9876543210fedcba9876543210"
+        real_link = os.link
+
+        def app_first(src, dst):
+            Path(dst).write_text(theirs)  # the app links its own in just before this does
+            return real_link(src, dst)
+
+        with mock.patch("updates.os.link", app_first):
+            self.assertEqual(updates.install_id(self.home), theirs)
+        self.assertEqual((self.home / "install-id").read_text(), theirs)
 
 
 class Updates(unittest.TestCase):
