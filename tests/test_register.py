@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flasher  # noqa: E402
 import release  # noqa: E402
 import ttycatd  # noqa: E402
-from boards import Boards, layout  # noqa: E402
+from boards import Boards, folder_hash, layout  # noqa: E402
 from core_update import Updater  # noqa: E402
 from test_core_update import KEYS, Devices, make_release  # noqa: E402
 
@@ -231,6 +231,38 @@ class FromSetup(Reading):
         f = self.flasher()
         self.assertEqual(self.register(f, Board(), build), {"ok": True, "msg": ""})
         self.assertEqual(f.source["folder"], str(self.folder))
+
+    def registered_at(self, folder: Path):
+        mine = self.boards.root / "my-board"
+        (mine / "current").mkdir(parents=True)
+        (mine / "board.json").write_text(json.dumps(
+            {"folder": str(folder), "idf": str(self.idf), "fw": FW, "hash": folder_hash(folder)}))
+
+    def test_a_folder_that_moved_is_chosen_again_without_reading_the_board(self):
+        self.registered_at(self.folder)
+        moved = self.dir / "elsewhere" / "my-board"
+        moved.parent.mkdir()
+        self.folder.rename(moved)
+        f, board = self.flasher(), Board()
+        self.assertEqual(self.register(f, board, moved), {"ok": True, "msg": ""})
+        self.assertFalse(board.closed)
+        self.assertEqual(self.calls(), [])
+        reg = self.boards.get("my-board")
+        # Just as it was, so being allowed to approve still carries over.
+        self.assertEqual((reg["folder"], reg["fw"], reg["hash"]), (str(moved), FW, folder_hash(moved)))
+
+    def test_a_moved_folder_that_changed_doesnt_carry_approving_over(self):
+        self.registered_at(self.folder)
+        (self.folder / "board.c").write_text("// changed\n")
+        self.assertEqual(self.register(self.flasher(), Board()), {"ok": True, "msg": ""})
+        self.assertEqual(self.boards.get("my-board")["hash"], "")
+
+    def test_a_board_running_another_build_is_read_again(self):
+        self.registered_at(self.folder)
+        board = Board(fw="custom-0.10.6-22222222")
+        self.assertEqual(self.register(self.flasher(), board), {"ok": True, "msg": ""})
+        self.assertTrue(board.closed)  # esptool reads what it runs now
+        self.assertEqual(self.boards.get("my-board")["fw"], FW)
 
     def test_a_folder_for_another_board_is_refused(self):
         other = self.dir / "mine" / "other-board"

@@ -187,6 +187,17 @@ class Boards:
         reg = self.get(name) or {}
         self._save(name, {"folder": reg.get("folder", ""), "idf": reg.get("idf", ""), "fw": fw, "hash": hash_})
 
+    def moved(self, name: str, folder: Path, idf: Path) -> dict:
+        """Its folder is somewhere else now, and the board still runs the build kept for it, so there's
+        nothing to read off the board. Being allowed to approve carries over only if the folder is
+        just as it was."""
+        reg = self.get(name)
+        if not reg:
+            raise ValueError(f"{name} isn't registered")
+        same = folder_hash(folder) == reg["hash"]
+        self._save(name, {"folder": str(folder), "idf": str(idf), "fw": reg["fw"], "hash": reg["hash"] if same else ""})
+        return self.get(name)
+
     def _save(self, name: str, reg: dict):
         path = self.root / name / "board.json"
         temp = path.with_suffix(".tmp")
