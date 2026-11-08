@@ -47,6 +47,12 @@ class Ports(unittest.TestCase):
         self.assertTrue(self.board.open())
         self.assertEqual(self.board.path, self.second[1])
 
+    def test_the_deadline_holds_wherever_the_clock_is(self):
+        self.assertTrue(self.board.open())
+        self.board.opened_at = 255.001  # (255.001 + 6.0) - 255.001 is 5.999999999999972
+        self.board.give_up_if_silent(self.later())
+        self.assertIsNone(self.board.fd)
+
     def test_once_every_port_has_had_a_try_they_are_left_alone(self):
         for _ in self.ports:
             self.board.open()
