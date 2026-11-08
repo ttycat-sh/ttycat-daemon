@@ -1,4 +1,10 @@
 {
  "about": "Public keys whose core releases the app will build for custom boards: see release.py. tools/release_key.py makes one. The secret half lives only where releases are signed.",
- "keys": []
+ "keys": [
+  {
+   "id": "5b4382076daae8d3",
+   "key": "quBzyBODaQ+Y4ObGX6144eQSFEj1RLypTxfSXKROpPc=",
+   "note": "prod: TTYCAT_SIGNING_KEY_PROD in ttycat-firmware's CI, an offline copy in the password manager"
+  }
+ ]
 }
