@@ -98,8 +98,7 @@ Tabs are `claude` CC, `codex` CX, `opencode` OC and `pi` PI. Other kinds show un
 - **Claude Code is the only agent with Allow and Deny.** Codex is terminal-only, as designed. OpenCode is terminal-only too, unlike the design: no real OpenCode prompt could be captured (its provider returned errors).
 - **The keyboard types ASCII.** A label with an accent shows as `?` on the board, but Claude still gets the original. Typed answers on the board are limited to 200 characters.
 - **The Error state never appears with live data.** herdr has no such state, so only `demo` shows it.
-- **"Recent" reads Claude Code's session log (`activity.py`), here and over SSH.** It lists your prompts, tool calls, failures and what Claude said, and it changes nothing. Claude's docs call the log format internal, so a release could break it: the list then falls back to status changes. Codex, OpenCode and Pi only have status changes for now. Prompts and file names now show on the board, so anyone at your desk can read them.
-- **Only sessions in herdr panes reach the board.** The hook does nothing elsewhere, so those prompts stay in their terminal.
+- **"Recent" reads Claude Code's session log (`activity.py`), here and over SSH.** It lists your prompts, tool calls, failures and what Claude said, and it changes nothing. Claude's docs call the log format internal, so a release could break it: the list then falls back to status changes. Codex read from its own records (`codex_threads.py`) lists the same from its log. Codex in herdr or tmux, OpenCode and Pi only have status changes. Prompts and file names now show on the board, so anyone at your desk can read them.
 - **Attach is untested on a pane that's on screen on the other machine.** herdr's docs say one direct attach owns a terminal's input and size, so that machine's view may resize until the window closes.
 - **The board holds 24 sessions across all machines.** Past that, the ones that need you are kept.
 
@@ -112,7 +111,7 @@ The daemon writes ttycat's own firmware, and builds a board of someone's own, on
 - `tools/release_core.py FIRMWARE OUT` packs a ttycat-firmware checkout into the source release a board of someone's own is built from.
 - `tools/publish_release.py` offers releases to Macs through the update server.
 
-ttycat-firmware's release workflow runs them, from the daemon it pins.
+ttycat-firmware's release workflow runs them, from the daemon it pins. The app's release workflow publishes the app with `tools/publish_release.py` too.
 
 ## Tests
 

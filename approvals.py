@@ -319,7 +319,7 @@ class Hub:
                 self.close_pane(pane)
 
     def settle(self):
-        """Called from the select loop. Nothing's held back here: see remote_hook.RemoteHub."""
+        """Called from the select loop. Nothing's held back here: see remote_hook.RemoteHub, in Pro."""
 
     def answer(self, pane: str, rev: str, action: str, picks=None) -> tuple[bool, str]:
         p = self.pending.get(pane)

@@ -228,7 +228,7 @@ class Updates(unittest.TestCase):
         self.assertFalse(real.plain_http)
         with self.assertRaisesRegex(ValueError, "isn't https"):
             real._url("http://example.com/ttycat.bin")
-        self.assertEqual(real._url("https://dl.ttycat.sh/x"), "https://dl.ttycat.sh/x")
+        self.assertEqual(real._url("https://api.ttycat.sh/x"), "https://api.ttycat.sh/x")
 
     def test_asked_when_a_board_is_first_seen_then_every_hour(self):
         self.check(now=100)

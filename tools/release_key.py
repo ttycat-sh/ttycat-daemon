@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""A new key for signing core releases: release_key.py [--add NOTE]
+"""A new key for signing releases: release_key.py [--add NOTE]
 
-Prints the secret, to keep only where releases are signed (a CI secret named TTYCAT_SIGNING_KEY),
-and the public half. --add also puts the public half in release_keys.json, so apps built
+Prints the secret, to keep only where releases are signed (TTYCAT_SIGNING_KEY in ttycat-firmware's
+release environments, for firmware and core releases), and the public half. The app's update keys
+are made with it too, without --add: their public halves are in ttycat-app's tools/app_build.py.
+--add also puts the public half in release_keys.json, so apps built
 from here on trust it. Apps already out there only trust the keys they shipped with: keep the
 secret safe, and back it up, or releases can't reach them.
 """
