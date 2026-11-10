@@ -135,6 +135,15 @@ class Describe(unittest.TestCase):
         self.assertEqual(v.questions[0]["o"][1], {"l": "Blue", "d": "Cool"})
         self.assertEqual(v.body, "Red or blue?\n- Red: Warm\n- Blue: Cool")
 
+    def test_what_a_question_shows_cut_short_says_so(self):
+        long = {"questions": [{"question": "q" * 400, "options": [{"label": "l" * 80, "description": "d" * 120}]}]}
+        shown = self.view("AskUserQuestion", long).questions[0]
+        self.assertEqual(shown["q"], "q" * 297 + "...")
+        self.assertEqual(shown["o"][0], {"l": "l" * 57 + "...", "d": "d" * 87 + "..."})
+        exact = {"questions": [{"question": "q" * 300, "options": [{"label": "l" * 60, "description": "d" * 90}]}]}
+        shown = self.view("AskUserQuestion", exact).questions[0]
+        self.assertEqual((shown["q"], shown["o"][0]), ("q" * 300, {"l": "l" * 60, "d": "d" * 90}))
+
     def test_a_question_it_cannot_show_is_terminal_only(self):
         five = [{"label": str(i)} for i in range(5)]
         same = {"question": "Q", "options": [{"label": "A"}]}

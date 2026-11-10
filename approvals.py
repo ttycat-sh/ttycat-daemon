@@ -45,6 +45,13 @@ def fit(text: str, n: int) -> str:
     return text[:n]
 
 
+def cut(text: str, n: int) -> str:
+    """As fit, but a text longer than n ends in "..." where the rest was: a question or option on the board
+    must never look complete when it isn't."""
+    text = fit(text, len(text))
+    return text if len(text) <= n else text[:n - 3] + "..."
+
+
 @dataclass
 class View:
     """A request as the board shows it."""
@@ -115,10 +122,10 @@ def _question_view(args: dict) -> View:
             ok = False
         if isinstance(text, str):
             lines.append(text)
-        rows = [{"l": fit(str(l), 60), "d": fit(_text(o.get("description")) if isinstance(o, dict) else "", 90)}
+        rows = [{"l": cut(str(l), 60), "d": cut(_text(o.get("description")) if isinstance(o, dict) else "", 90)}
                 for l, o in zip(labels, options)]
         lines += [f"- {r['l']}: {r['d']}" if r["d"] else f"- {r['l']}" for r in rows]
-        shown.append({"q": fit(str(text), 300), "m": bool(q.get("multiSelect")) if isinstance(q, dict) else False, "o": rows})
+        shown.append({"q": cut(str(text), 300), "m": bool(q.get("multiSelect")) if isinstance(q, dict) else False, "o": rows})
         asked.append((text, tuple(labels)))
     body = "\n".join(lines) or "Waiting at its terminal"
     if not ok:
