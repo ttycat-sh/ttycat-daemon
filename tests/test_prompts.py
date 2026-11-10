@@ -1427,14 +1427,6 @@ class HookInstall(unittest.TestCase):
         self.assertEqual(ttycatd.hook_command("repair", self.path), "installed")
         self.assertEqual(self.path.read_text(), before)
 
-    def test_repair_guards_an_entry_from_before_the_guard(self):
-        hook = Path(self.tmp.name, "daemon", "hook.py")
-        hook.parent.mkdir()
-        hook.write_text("")
-        self.with_entry(f"python3 -I {hook}")
-        self.assertEqual(ttycatd.hook_command("repair", self.path), "installed")
-        self.assertEqual(self.commands(), ["other-tool", ttycatd.hook_shell_command()])
-
     def test_repair_never_adds_a_hook_you_didnt_choose(self):
         before = self.path.read_text()
         self.assertEqual(ttycatd.hook_command("repair", self.path), "not installed")

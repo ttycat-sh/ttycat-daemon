@@ -728,8 +728,7 @@ def hook_command(action: str, path: Path = CLAUDE_SETTINGS) -> str:
     if action == "repair":
         # The app was moved or replaced: only ever fixes an entry you already chose to have.
         commands = [str(h.get("command", "")) for e in ours for h in e.get("hooks", [])]
-        # Also one from before the guard (hook_shell_command), which errors once the app is thrown away.
-        if not ours or all(_files_exist(c) and c.startswith("test -f ") for c in commands):
+        if not ours or all(_files_exist(c) for c in commands):
             return "installed" if ours else "not installed"
         action = "install"
     others = [e for e in entries if not _is_ours(e)]
