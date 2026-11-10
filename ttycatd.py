@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""ttycat daemon: connects herdr to the touch board over USB.
+"""ttycat daemon: finds every coding agent on this Mac, and connects them to the board over USB and to the app.
 
   ttycatd.py run                 live sessions from this Mac
   ttycatd.py demo                the design's sample data (nothing is answered)
   ttycatd.py hook install|remove|status   the Claude Code permission hook
   ttycatd.py pet [--name NAME]   see the pet, or rename it
   ttycatd.py status              the board the running daemon talks to: its build, and the last flash
+  ttycatd.py flash FOLDER [--replace]   put a build on the board, through the running daemon
   ttycatd.py register-board FOLDER [--build DIR]   a board of your own, so the app can update its core
   ttycatd.py core-add RELEASE.json | core-update   a signed core release, and building it for the board
   ttycatd.py shot out.png        save the board's current frame
+  ttycatd.py art FILE|off        show art on Bit's stage, until the daemon stops
   ttycatd.py tap X Y | swipe L|R|U|D | goto SCREEN     drive a running daemon
   ttycatd.py scene NAME | silence SECONDS              demo states, for testing
 
@@ -65,7 +67,7 @@ HOOK_TIMEOUT_S = 86400  # the terminal prompt stays usable meanwhile: see approv
 HEARTBEAT_S = 1.0
 HELLO_WAIT_S = 6.0  # a board says what it runs after 2 s without hearing anything, and booting takes a moment
 PROTOCOL = 1  # what a device has to speak. Goes up when a change would break one that's already built
-RELEASES_ADDED = Path.home() / ".ttycat" / "core" / "releases"  # from core-add, and later a server
+RELEASES_ADDED = Path.home() / ".ttycat" / "core" / "releases"  # from core-add, and from ttycat's update server (updates.py)
 RELEASES_IN_APP = Path(__file__).resolve().parent.parent / "core"  # ttycat-app's build.sh puts the app's own here
 SERIAL_PORTS = ("/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.wchusbserial*", "/dev/cu.SLAB_USBtoUART*")
 

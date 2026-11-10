@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Publishes signed releases to ttycat's update server, as the release workflow does:
+"""Publishes signed releases to ttycat's update server, as the release workflows do:
 
   publish_release.py --api https://api.ttycat.sh RELEASE...
 
-Each RELEASE is a core release's ttycat-core-VERSION.json, or an official board's image folder with its
-release.json. The token is $API_PUBLISH_TOKEN. Publish only once the files are in the bucket: from then
+Each RELEASE is a core release's ttycat-core-VERSION.json, an official board's image folder with its
+release.json, or the app's release (ttycat-app's tools/release_app.py). The token is $API_PUBLISH_TOKEN. Publish only once the files are in the bucket: from then
 on Macs are offered them. The server checks each signature too, and never replaces a release, so one
 that's already there counts as done: a workflow run can be repeated.
 """
