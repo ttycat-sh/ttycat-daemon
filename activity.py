@@ -27,6 +27,14 @@ FIRST_READS_PER_SYNC = 3  # a long first read must not hold up the board for all
 LOOK_AGAIN_S = 5.0        # a new session has no log until its first prompt
 USEFUL = (b'"type":"assistant"', b'"type":"user"')
 
+# A pull or merge request the agent made: only the output of a command that makes or updates one is read
+# for its address, so one that's merely mentioned, or listed, is never taken for the agent's own.
+MAKES_A_REQUEST = re.compile(r"\b(gh\s+pr\s+create|glab\s+mr\s+create|git\s+push)\b")
+REQUEST_TOOL = re.compile(r"create_(pull|merge)_request", re.IGNORECASE)
+REQUEST_LINK = re.compile(r"https://([A-Za-z0-9.-]{1,100})/([\w.~/-]{1,150}?)(?:/-)?/(pull|merge_requests)/(\d{1,9})(?![\w-])")
+REQUESTS_KEPT = 5
+REQUESTS_SHOWN = 3
+REQUEST_FRESH_S = 24 * 3600   # older than this it has likely been merged or closed: nothing here can ask
 COMMAND_NAME = re.compile(r"<command-name>\s*(\S+?)\s*</command-name>")
 NOT_A_FAILURE = ("denied", "doesn't want to proceed", "rejected")  # someone said no: that's shown separately
 QUIET_TOOLS = {"ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskOutput", "TaskStop"}
@@ -139,6 +147,17 @@ class Trail:
         self.session = session
         self.offset: int | None = None  # how far the log has been read
         self.events: collections.deque[Event] = collections.deque(maxlen=KEEP)
+        # The latest the log says of each; None until it has said it.
+        self.model: str | None = None
+        self.context: int | None = None   # tokens the last reply was given to read
+        self.branch: str | None = None
+        self.steps: int | None = None     # tools used since your last prompt; None if that prompt is further back than was read
+        self.making: set[str] = set()     # tool calls whose output may name a request it made
+        self.requests: list[dict] = []    # pull and merge requests it made, oldest first
+
+    def about(self) -> dict:
+        known = {"model": self.model, "ctx": self.context, "branch": self.branch, "steps": self.steps}
+        return {name: value for name, value in known.items() if value is not None}
 
     def feed(self, data: bytes):
         for raw in data.split(b"\n"):
@@ -154,9 +173,16 @@ class Trail:
             return
         content = (entry.get("message") or {}).get("content")
         at = _when(entry)
+        branch = entry.get("gitBranch")
+        if isinstance(branch, str) and branch:
+            self.branch = branch[:80]
         if entry.get("type") == "assistant" and isinstance(content, list):
+            self._reply(entry.get("message") or {})
             for block in content:
                 if block.get("type") == "tool_use":
+                    if self.steps is not None:
+                        self.steps += 1
+                    self._may_make(block)
                     text = tool_summary(str(block.get("name") or ""), block.get("input") or {}, str(entry.get("cwd") or ""))
                     if text:
                         self._add(Event(at, 0, text, "tool", str(block.get("id") or "")))
@@ -173,10 +199,49 @@ class Trail:
                     self._prompt(str(block.get("text") or ""), at)
                 elif block.get("type") == "tool_result" and block.get("is_error"):
                     self._failed(block)
+                elif block.get("type") == "tool_result" and block.get("tool_use_id") in self.making:
+                    self._made(block, at)
+
+    def _reply(self, message: dict):
+        model, usage = message.get("model"), message.get("usage")
+        if not isinstance(model, str) or not model or model.startswith("<"):  # "<synthetic>" is Claude Code talking, not a model
+            return
+        self.model = model[:60]
+        if isinstance(usage, dict):
+            read = [usage.get(part) for part in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+            if any(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in read):
+                self.context = sum(n for n in read if isinstance(n, int) and not isinstance(n, bool) and n > 0)
+
+    def _may_make(self, block: dict):
+        name, args = str(block.get("name") or ""), block.get("input") or {}
+        command = args.get("command") if isinstance(args, dict) else None
+        if REQUEST_TOOL.search(name) or (name == "Bash" and isinstance(command, str) and MAKES_A_REQUEST.search(command)):
+            if len(self.making) > 200:
+                self.making.clear()
+            self.making.add(str(block.get("id") or ""))
+
+    def _made(self, block: dict, at: float):
+        said = block.get("content")
+        if isinstance(said, list):
+            said = "\n".join(str(part.get("text") or "") for part in said if isinstance(part, dict))
+        if not isinstance(said, str):
+            return
+        for host, repo, kind, number in REQUEST_LINK.findall(said[:20_000]):
+            merge = kind == "merge_requests"
+            url = f"https://{host}/{repo}/{'-/merge_requests' if merge else 'pull'}/{number}"
+            self.requests = [r for r in self.requests if r["url"] != url]  # pushed to again: it's the newest once more
+            self.requests.append({"url": url, "kind": "mr" if merge else "pr", "repo": repo, "n": int(number), "at": at})
+            del self.requests[:-REQUESTS_KEPT]
+
+    def recent_requests(self, now: float) -> list[dict]:
+        """Newest first, and only those made lately."""
+        fresh = [r for r in reversed(self.requests) if now - r["at"] < REQUEST_FRESH_S]
+        return [{name: r[name] for name in ("url", "kind", "repo", "n")} for r in fresh[:REQUESTS_SHOWN]]
 
     def _prompt(self, text: str, at: float):
         shown = prompt_summary(text)
         if shown:
+            self.steps = 0
             self._add(Event(at, 0, shown, "you"))
 
     def _failed(self, block: dict):
@@ -330,12 +395,25 @@ class Activity:
                 continue
             if restarted:
                 trail.events.clear()
+                trail.steps = None
+                trail.making.clear()
+                trail.requests.clear()
             trail.offset = offset
             trail.feed(data)
 
     def events(self, pane: str) -> list[Event]:
         trail = self.trails.get(pane)
         return list(trail.events) if trail else []
+
+    def about(self, pane: str) -> dict:
+        """What its log says of it: the model, how much it has to read, the branch, the tools used this turn."""
+        trail = self.trails.get(pane)
+        return trail.about() if trail else {}
+
+    def requests(self, pane: str, now: float | None = None) -> list[dict]:
+        """The pull and merge requests it made lately."""
+        trail = self.trails.get(pane)
+        return trail.recent_requests(time.time() if now is None else now) if trail else []
 
     def now(self, pane: str) -> str:
         """The newest thing it did."""

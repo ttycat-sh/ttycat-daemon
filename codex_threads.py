@@ -290,6 +290,11 @@ class CodexThreads(HerdrSource):
         self.ran &= set(self.threads)
         return {"result": {"agents": agents}}
 
+    def _running(self, pane: str, a: dict):
+        known = super()._running(pane, a)
+        known.session, known.in_app = str(self.threads.get(pane, {}).get("id") or ""), True
+        return known
+
     def _open(self, pane: str) -> tuple[bool, str]:
         thread = self.threads.get(pane)
         if not thread:
