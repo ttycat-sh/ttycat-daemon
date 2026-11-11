@@ -12,6 +12,8 @@ import threading
 import time
 from pathlib import Path
 
+import children
+import harness
 import prompts
 from discovery import is_ours
 from activity import Activity, LocalLogs
@@ -29,6 +31,11 @@ BOARD_ROWS = 5           # the Recent rows on the board
 WHERE = {"board": "on board", "app": "in the app"}
 MAX_SAID = 200
 RANK = {"blocked": 0, "error": 1, "done": 2, "working": 3, "idle": 4}
+
+
+def row_order(row: dict):
+    """What needs you first; among equals, the one that changed most recently."""
+    return RANK.get(row.get("s"), 9), row.get("age", 0)
 
 
 APP_IN_PATH = re.compile(r"^(/.*?\.app)/Contents/MacOS/")
@@ -186,6 +193,7 @@ class HerdrSource:
         self.reachable = True
         self.herdr_timeout = 3
         self.since: dict[str, tuple[str, float]] = {}
+        self.guessed: set[str] = set()         # panes found already at rest: when they came to rest isn't known yet
         self.hist: dict[str, collections.deque] = {}
         self.seen_done: set[str] = set()
         self.answered: dict[str, tuple[float, str]] = {}   # pane -> when it was last answered, and where
@@ -196,6 +204,9 @@ class HerdrSource:
         self.states: dict[str, collections.deque] = {}  # status changes: all there is without a session log
         self.peek: set[str] = set()                     # panes someone is looking at
         self.activity = Activity(self._logs())
+        self.harnesses = harness.known()
+        self.processes = children.shared()
+        self.procs: dict[str, tuple[int, float]] = {}   # Claude session -> (its process, when that began)
 
     def _logs(self):
         return LocalLogs()
@@ -289,8 +300,17 @@ class HerdrSource:
                 if prior and prior[0] in ("working", "blocked") and status in ("done", "idle"):
                     self.pet_stats.finished()
                 self.since[pane] = (status, now)
+                self.guessed.discard(pane)
+                if not prior and status in ("done", "idle"):
+                    self.guessed.add(pane)
                 if status != "done":
                     self.seen_done.discard(pane)
+            if pane in self.guessed:
+                # Found at rest, as after a restart: it's been so since the last thing in its log, not since now.
+                events = self.activity.events(pane)
+                if events:
+                    self.since[pane] = (status, min(now, events[-1].at))
+                    self.guessed.discard(pane)
             age = int(now - self.since[pane][1])
 
             s = {"id": pane, "a": code, "n": name, "p": fit(project, 27), "age": age}
@@ -341,6 +361,7 @@ class HerdrSource:
             for table in (self.since, self.hist, self.states, self.answered, self.noted):
                 table.pop(gone, None)
             self.seen_done.discard(gone)
+            self.guessed.discard(gone)
             self.peek.discard(gone)
         if self.hub:
             self.hub.keep_only(alive)
@@ -359,9 +380,26 @@ class HerdrSource:
                 said = self.activity.last_said(pane)
                 if said:
                     extra["said"] = "".join(c for c in " ".join(said.split()) if c.isprintable())[:MAX_SAID]
+            made = getattr(self.activity, "requests", None)
+            made = made(pane) if made else []
+            if made:
+                extra["prs"] = made
+            extra.update(self._counts(pane, a))
             if extra:
                 out[pane] = extra
         return out
+
+    def _running(self, pane: str, a: dict) -> harness.Running:
+        session = (a.get("agent_session") or {}).get("value", "")
+        pid, started = self.procs.get(session, (None, 0.0))
+        cwd = a.get("cwd") or ""
+        alone = sum(1 for b in self.agents.values() if b.get("agent") == a.get("agent") and (b.get("cwd") or "") == cwd) <= 1
+        return harness.Running(session, pid, started, cwd, alone)
+
+    def _counts(self, pane: str, a: dict) -> dict:
+        """Its subagents and open shells, as far as its kind of agent can tell: see harness.py."""
+        kind = self.harnesses.get(a.get("agent", ""))
+        return kind.counts(self._running(pane, a), self.processes) if kind else {}
 
     def _focused_here(self, a: dict) -> bool:
         return bool(a.get("focused"))
@@ -385,6 +423,20 @@ class HerdrSource:
             line = fit(line, 120) if board else "".join(c for c in line if c.isprintable())[:300]
             items.append({"age": age, "tone": tone, "text": line})
         return items
+
+    def about(self, pane: str) -> dict:
+        """For the app's page of one agent: what's known of it beside its state. What isn't known is left out."""
+        a = self.agents.get(pane)
+        if a is None:
+            return {}
+        said = getattr(self.activity, "about", None)
+        out = dict(said(pane)) if said else {}
+        if a.get("cwd"):
+            out["cwd"] = str(a["cwd"])[:300]
+        started = self._running(pane, a).started
+        if started:
+            out["up"] = max(0, int(time.time() - started))
+        return out
 
     def act(self, action: str, pane: str, rev: str, picks=None, via: str = "board") -> tuple[bool, str]:
         if action == "seen":
@@ -479,6 +531,7 @@ class Fleet:
         rows = list(self.local.poll())
         if self.sessions:
             self.sessions.herdr_up = self.local.reachable
+            self.local.procs = self.sessions.procs
             self.sessions.herdr_sessions = {(a.get("agent_session") or {}).get("value", "")
                                             for a in self.local.agents.values()} - {""}
             rows += self.sessions.poll()
@@ -491,7 +544,7 @@ class Fleet:
         for n, r in enumerate(self.remotes, 1):
             rows += self._remote_rows(n, r)
         # the board holds 24: if there are more, what needs you must be among them
-        rows.sort(key=lambda row: RANK.get(row.get("s"), 9))
+        rows.sort(key=row_order)
         return rows
 
     @property
@@ -510,6 +563,10 @@ class Fleet:
     def history(self, sid: str, limit: int = BOARD_ROWS, board: bool = True) -> list[dict]:
         source, pane = self._route(sid)
         return source.history(pane, limit, board) if source else []
+
+    def about(self, sid: str) -> dict:
+        source, pane = self._route(sid)
+        return source.about(pane) if source else {}
 
     def act(self, action: str, sid: str, rev: str, picks=None, via: str = "board") -> tuple[bool, str]:
         if action.startswith("pet-"):

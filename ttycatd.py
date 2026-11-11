@@ -38,6 +38,8 @@ import zlib
 from pathlib import Path
 
 import art
+import harness
+import integrations
 import plugins
 import release
 import updates
@@ -407,7 +409,9 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         checker.set_enabled(cmd.get("check") is not False)
                         reply = {"ok": True, "msg": ""}
                     elif cmd["t"] == "activity":
-                        reply = {"items": source.history(str(cmd.get("id", "")), APP_ACTIVITY_ROWS, False)}
+                        about = getattr(source, "about", None)
+                        reply = {"items": source.history(str(cmd.get("id", "")), APP_ACTIVITY_ROWS, False),
+                                 "about": about(str(cmd.get("id", ""))) if about else {}}
                     else:
                         reply = app_action(source, cmd)
                         next_beat = 0  # the board shows it right away too
@@ -707,6 +711,35 @@ def hook_shell_command() -> str:
     return f"test -f {hook} || exit 0; exec {shlex.quote(python)} -I {hook}"
 
 
+def hook_state(path: Path = CLAUDE_SETTINGS) -> str:
+    """As integrations.py names states. A settings file that can't be read raises, and is shown as that."""
+    settings = json.loads(path.read_text()) if path.exists() else {}
+    ours = [e for e in settings.get("hooks", {}).get("PermissionRequest", []) if _is_ours(e)]
+    if not ours:
+        return integrations.MISSING
+    commands = [str(h.get("command", "")) for e in ours for h in e.get("hooks", [])]
+    return integrations.INSTALLED if all(_files_exist(c) for c in commands) else integrations.BROKEN
+
+
+def agent_setups(path: Path = CLAUDE_SETTINGS) -> list:
+    """Every agent ttycat knows, with what can be added to each. An extension can add its own."""
+    hook = integrations.Addition(
+        "claude-hook", "Answer its prompts in ttycat",
+        "Allow and Deny without finding the terminal. Claude still asks there too, and either place can answer.",
+        "One permission hook in ~/.claude/settings.json. Nothing else in that file changes.",
+        lambda: hook_state(path), lambda: hook_command("install", path), lambda: hook_command("remove", path))
+    return integrations.supported({"claude": [hook]})
+
+
+def setup_command(action: str, addition: str | None, agents: list | None = None) -> dict:
+    agents = agents if agents is not None else agent_setups()
+    if action == "list":
+        return integrations.listing(agents, harness.known())
+    if not addition:
+        return {"ok": False, "msg": "which one?"}
+    return integrations.change(agents, action, addition)
+
+
 def _files_exist(command: str) -> bool:
     """Whether what the command names is still there. A bare `python3` is the shell's to find."""
     try:
@@ -768,6 +801,9 @@ def main():
     sub.add_parser("demo")
     s = sub.add_parser("hook")
     s.add_argument("action", choices=["install", "remove", "status", "repair"])
+    s = sub.add_parser("setup", help="what can be added to each agent's own setup, as JSON")
+    s.add_argument("action", choices=["list", "install", "remove"])
+    s.add_argument("addition", nargs="?")
     s = sub.add_parser("pet")
     s.add_argument("--name")
     s = sub.add_parser("flash", help="put a build on the board, through the running daemon")
@@ -831,6 +867,8 @@ def main():
             ctl_send({"t": "pet-name", "name": a.name})
         else:
             print(json.dumps(json.loads(PET_FILE.read_text()), indent=2) if PET_FILE.exists() else "No pet yet.")
+    elif a.cmd == "setup":
+        print(json.dumps(setup_command(a.action, a.addition)))
     elif a.cmd == "hook":
         print("Permission hook:", hook_command(a.action))
     elif a.cmd in api.commands:

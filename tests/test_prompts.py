@@ -402,6 +402,7 @@ class FakeHerdr(sources.HerdrSource):
         kw.setdefault("pet", Pet(Path(tempfile.gettempdir()) / "ttycat-test-absent" / "pet.json"))
         super().__init__(**kw)
         self.status, self.screen, self.calls = status, screen, []
+        self.harnesses = {}  # counts are test_harness's: nothing here reads real sessions or processes
 
     def _herdr(self, *args):
         self.calls.append(args)
@@ -579,6 +580,36 @@ class Trail(unittest.TestCase):
 
     def texts(self, *lines):
         return [e.shown for e in self.fed(*lines).events]
+
+    def test_what_the_log_says_of_the_agent_is_the_latest_it_said(self):
+        def reply(model, read, tools=1):
+            content = [{"type": "tool_use", "id": f"t{n}", "name": "Read", "input": {"file_path": "/a"}} for n in range(tools)]
+            entry = {"type": "assistant", "timestamp": "2026-01-01T00:00:00Z", "gitBranch": "fix-cart",
+                     "message": {"model": model, "content": content,
+                                 "usage": {"input_tokens": 10, "cache_read_input_tokens": read, "output_tokens": 999}}}
+            return (json.dumps(entry, separators=(",", ":")) + "\n").encode()
+        early = self.fed(reply("claude-a", 5000))
+        self.assertEqual(early.about(), {"model": "claude-a", "ctx": 5010, "branch": "fix-cart"})  # no prompt seen: its tools aren't counted
+        trail = self.fed(reply("claude-a", 5000), log_line("user", "now the tests"), reply("claude-b", 9000, 2), reply("<synthetic>", 0, 1))
+        self.assertEqual(trail.about(), {"model": "claude-b", "ctx": 9010, "branch": "fix-cart", "steps": 3})
+
+    def test_only_a_request_the_agent_made_lately_is_its_own(self):
+        def result(tool_id, text, at="2026-11-02T09:00:00Z", **extra):
+            entry = {"type": "user", "timestamp": at, "message": {"content": [{"type": "tool_result", "tool_use_id": tool_id, "content": text, **extra}]}}
+            return (json.dumps(entry, separators=(",", ":")) + "\n").encode()
+        made = 1793610000.0  # that timestamp
+        trail = self.fed(
+            tool("Bash", "t1", command="gh pr list"), result("t1", "https://github.com/acme/shop/pull/7 someone else's"),
+            tool("Bash", "t2", command="cd web && gh pr create --fill"), result("t2", "Creating...\nhttps://github.com/acme/shop/pull/12\n"),
+            tool("Bash", "t3", command="git push -u origin fix"),
+            result("t3", [{"type": "text", "text": "remote: https://github.com/acme/shop/pull/new/fix\nremote: View merge request:\nremote:   https://gitlab.example.com/grp/sub/api/-/merge_requests/41"}]),
+            tool("Bash", "t4", command="glab mr create"), result("t4", "http://gitlab.example.com/grp/api/-/merge_requests/9 https://evil.example/x?u=/pull/3", is_error=False),
+            tool("mcp__github__create_pull_request", "t5", title="x"), result("t5", '{"html_url":"https://github.com/acme/shop/pull/12"}', at="2026-11-02T09:30:00Z"))
+        self.assertEqual(trail.recent_requests(made + 3600), [
+            {"url": "https://github.com/acme/shop/pull/12", "kind": "pr", "repo": "acme/shop", "n": 12},
+            {"url": "https://gitlab.example.com/grp/sub/api/-/merge_requests/41", "kind": "mr", "repo": "grp/sub/api", "n": 41}])
+        self.assertEqual(len(trail.recent_requests(made + 24 * 3600 + 60)), 1)   # the first is a day old: likely merged by now
+        self.assertEqual(trail.recent_requests(made + 26 * 3600), [])
 
     def test_a_turn_reads_in_order(self):
         self.assertEqual(self.texts(

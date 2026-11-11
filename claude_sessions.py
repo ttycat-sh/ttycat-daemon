@@ -150,6 +150,12 @@ class _InATerminal(HerdrSource):
             self.parents[pid] = self.parent_check(pid)
         return self.parents[pid]
 
+    def _running(self, pane: str, a: dict):
+        known = super()._running(pane, a)
+        if known.pid is None:
+            known.pid = self.pids.get(pane)
+        return known
+
     def _forget_others(self, running: set[int]):
         self.envs = {pid: env for pid, env in self.envs.items() if pid in running}
         self.parents = {pid: seen for pid, seen in self.parents.items() if pid in running}
@@ -195,6 +201,8 @@ class ClaudeSessions(_InATerminal):
             return None
         everything = self.read(self.folder)
         self.all_pids = {e["pid"] for e in everything}
+        self.procs = {e["sessionId"]: (e["pid"], started_ms / 1000 if isinstance(started_ms := e.get("startedAt"), (int, float)) else 0.0)
+                      for e in everything}
         self._forget_others(self.all_pids)
         mine = [e for e in everything if e["sessionId"] not in self.herdr_sessions and not self._in_herdr_pane(e["pid"])]
         self.pids = {session_pane(e["sessionId"]): e["pid"] for e in mine}
@@ -265,6 +273,7 @@ class RunningAgents(_InATerminal):
         self.activity = Logs()     # Codex's: nothing else found here has a log to read
         self.codex_list: list[dict] = []
         self.codex_paths: dict[str, str] = {}
+        self.codex_ids: dict[str, str] = {}    # pane -> its Codex thread, where that could be told
         self.codex_ran: set[str] = set()
         self.started: dict[int, float | None] = {}
         self.screens: dict[str, str] = {}
@@ -319,7 +328,7 @@ class RunningAgents(_InATerminal):
         a folder there's no telling them apart, so neither gets a state it may not have."""
         plain = [f for f in mine if f.agent == "codex" and f.screen is None]
         per_folder = collections.Counter(f.cwd for f in plain)
-        paths, asks = {}, {}
+        paths, asks, ids = {}, {}, {}
         for f in plain:
             if per_folder[f.cwd] != 1 or not f.cwd:
                 continue
@@ -332,12 +341,19 @@ class RunningAgents(_InATerminal):
             if thread:
                 paths[process_pane(f.pid)] = thread["rollout_path"]
                 asks[process_pane(f.pid)] = thread.get("approval_mode") != "never"
+                ids[process_pane(f.pid)] = str(thread.get("id") or "")
         self.activity.sync(paths)
+        self.codex_ids = ids
         self.codex_ran &= set(paths)
         for f in plain:
             pane = process_pane(f.pid)
             if pane in paths:
                 f.status = self.activity.status(pane, asks[pane], self.codex_ran)
+
+    def _running(self, pane: str, a: dict):
+        known = super()._running(pane, a)
+        known.session = known.session or self.codex_ids.get(pane, "")
+        return known
 
     def _tmux_of(self, pid: int) -> tuple[str, str]:
         found = next((f for f in self.found if f.pid == pid), None)
