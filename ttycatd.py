@@ -39,6 +39,7 @@ from pathlib import Path
 
 import art
 import plugins
+import prices
 import release
 import updates
 from approvals import HOOK_SOCK, Hub, HubScope
@@ -250,6 +251,7 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
     flasher = Flasher(log)
     updater = Updater(Boards(), release.Releases([RELEASES_IN_APP, RELEASES_ADDED]), devices, log)
     checker = updates.Checker(log=log)
+    api.prices = prices.Prices(lambda: checker.enabled, log=log).table  # asked only if an extension calls it
     CTL_PATH.parent.mkdir(mode=0o700, exist_ok=True)
     CTL_PATH.unlink(missing_ok=True)
     ctl = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
