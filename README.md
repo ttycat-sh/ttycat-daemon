@@ -113,6 +113,13 @@ The daemon writes ttycat's own firmware, and builds a board of someone's own, on
 
 ttycat-firmware's release workflow runs them, from the daemon it pins. The app's release workflow publishes the app with `tools/publish_release.py` too.
 
+## What it asks ttycat's server
+
+Two things, both off with Setup's update check, and both in a thread of their own:
+
+- **What's new for the board plugged in** (`updates.py`): when the app starts, then every hour. It sends the board's model and firmware, and a random ID for this Mac.
+- **What AI models cost** (`prices.py`): only if an extension asks for it, to show an estimate, and then at most once a day. It sends nothing: it's the same table for everyone, and any sum is done here. The open-source daemon has no such extension, and never fetches it.
+
 ## Tests
 
 ```sh

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-API_VERSION = 1
+API_VERSION = 2  # 2: prices
 
 
 class Api:
@@ -26,6 +26,10 @@ class Api:
         self.machines: Callable | None = None
         # name -> (configure(parser), run(args)): extra subcommands.
         self.commands: dict[str, tuple[Callable, Callable]] = {}
+        # What AI models cost, {"fetched_at": ..., "models": [...]}, or None: prices.py. The daemon
+        # sets it once it runs. Calling it is what makes the daemon fetch the table, so only call it
+        # to show someone a cost.
+        self.prices: Callable[[], dict | None] = lambda: None
 
 
 def load(folder: str | None, log=print) -> Api:
