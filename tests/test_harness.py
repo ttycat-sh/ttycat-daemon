@@ -173,8 +173,8 @@ class InTheStatus(unittest.TestCase):
         rows = source.poll()
         self.assertNotIn("sub", rows[0])  # the board's rows stay as they were
         desk = source.desk()
-        self.assertEqual(desk["p1"], {"sub": 1, "sh": 1, "guess": ["sh"]})
-        self.assertNotIn("p2", desk)
+        self.assertEqual(desk["p1"], {"sub": 1, "sh": 1, "guess": ["sh"], "ses": SESSION})
+        self.assertNotIn("p2", desk)  # no session it names, and nothing counted: nothing to add
 
 
 if __name__ == "__main__":

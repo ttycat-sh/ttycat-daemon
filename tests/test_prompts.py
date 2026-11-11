@@ -1083,7 +1083,20 @@ class Desk(unittest.TestCase):
     def test_other_panes_are_not(self):
         src = self.source(focused=False)
         src.row()
-        self.assertNotIn("w:p1", src.desk())
+        self.assertNotIn("foc", src.desk()["w:p1"])
+
+    def test_the_session_is_named_as_the_agent_names_it(self):
+        src = self.source()
+        src.row()
+        self.assertEqual(src.desk()["w:p1"]["ses"], src.agents["w:p1"]["agent_session"]["value"])
+        self.assertNotIn("ses", src.poll()[0])  # the board's rows stay as they were
+
+    def test_a_session_with_no_name_or_an_odd_one_isnt(self):
+        for value in ("", "two words", "../../etc/passwd", "x" * 200, "tab\tbed"):
+            src = self.source()
+            src.row()
+            src.agents["w:p1"]["agent_session"] = {"value": value}
+            self.assertNotIn("ses", src.desk().get("w:p1", {}), value)
 
     def test_a_finished_turn_says_how_it_ended_in_full_characters(self):
         src = self.source(words=said("Fertig: alle Tests laufen und grün ✓"))
@@ -1095,7 +1108,7 @@ class Desk(unittest.TestCase):
     def test_a_turn_still_going_says_nothing_yet(self):
         src = self.source(words=said("Looking at it"))
         src.row()
-        self.assertNotIn("w:p1", src.desk())
+        self.assertNotIn("said", src.desk()["w:p1"])
 
     def test_control_characters_never_reach_a_notification(self):
         src = self.source(words=said("ok\x1b[31m \u202eevil"))

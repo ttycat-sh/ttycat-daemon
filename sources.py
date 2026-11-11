@@ -30,6 +30,7 @@ ANSWER_SETTLES_S = 3.0   # herdr can still say "blocked" for a moment after an a
 BOARD_ROWS = 5           # the Recent rows on the board
 WHERE = {"board": "on board", "app": "in the app"}
 MAX_SAID = 200
+SESSION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")  # an ID, as agents make them: nothing else goes to the app as one
 RANK = {"blocked": 0, "error": 1, "done": 2, "working": 3, "idle": 4}
 
 
@@ -369,8 +370,8 @@ class HerdrSource:
         return out
 
     def desk(self) -> dict[str, dict]:
-        """For the app's notifications, not the board: the pane you're on, and how each
-        finished turn ended, in full characters."""
+        """For the app, not the board: the pane you're on, how each finished turn ended, in full
+        characters, and the session each agent is in, as the agent itself names it."""
         out = {}
         for pane, a in self.agents.items():
             extra = {}
@@ -385,6 +386,11 @@ class HerdrSource:
             if made:
                 extra["prs"] = made
             extra.update(self._counts(pane, a))
+            # Its own name for its session, where that's known: what an extension can look up in
+            # what else it knows of the agent's sessions. It names nothing but the session.
+            session = self._running(pane, a).session
+            if session and SESSION_NAME.fullmatch(session):
+                extra["ses"] = session
             if extra:
                 out[pane] = extra
         return out
