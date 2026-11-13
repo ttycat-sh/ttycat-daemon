@@ -54,6 +54,16 @@ herdr isn't required, on this Mac or on other machines. A session outside it jus
 - **Open in terminal** brings the session's terminal app forward, and the right pane under tmux. It can't pick the tab in other terminals. On another machine, only a herdr pane can be opened from here. A Codex app thread opens in the app, through its `codex://threads/` link.
 - **Notifications can't tell which tab you're on** outside herdr, so a banner can appear for the session you're already looking at.
 
+## Names for agents
+
+An agent goes by the folder it's in, so two in one folder look alike. The app can give one a name of its own, and so can `ttycatd.py agent-name ID [NAME]`; with no name it goes by its folder again. The board lists it under that name too, in the letters it has: an accent goes and its letter stays, and a name with none of the board's letters leaves it the folder.
+
+- **ttycat keeps the names itself,** in `~/.ttycat/agent-names.json`, and the same way for every agent, whichever row of the table above it's from. Nothing is told to the agent, and nothing is written to herdr.
+- **What herdr calls an agent is its name here too,** if you named it there (`herdr agent rename`), until you give it one here.
+- **A name stays with the agent it was given to.** It's kept under something no later agent goes by: for one in herdr its terminal, which herdr numbers once, where a pane's number comes round again; for the rest its session, its thread, or its process. Another machine's are kept apart by its host.
+- **It outlives its agent by a month,** in case that session comes back. One known only by its process is forgotten ten minutes after the process goes.
+- **Only the app can name one.** The board has no keys, and its actions don't include it.
+
 ## Answering prompts safely
 
 Allow, Deny and answers to questions go through Claude Code's `PermissionRequest` hook (`hook.py`, `approvals.py`). Nothing is typed into a terminal. The terminal prompt stays up as usual, and whichever answers first wins.

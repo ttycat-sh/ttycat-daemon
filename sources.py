@@ -17,6 +17,7 @@ import harness
 import prompts
 from discovery import is_ours
 from activity import Activity, LocalLogs
+from agent_names import AgentNames, clean_name, for_board
 from approvals import fit
 from petstate import Pet
 
@@ -98,6 +99,7 @@ class DemoSource:
             dict(id="d6", a="CC", n="Claude", p="docs", s="idle", age=840, d="waiting for prompt"),
         ]
         self.sessions = self.all
+        self.given: dict[str, str] = {}  # the names given here, in memory: demo mode keeps nothing
         # its own pet, kept in memory: demo mode doesn't touch the real one
         self.pet_stats = Pet(path=None, clock=time.time, local=lambda t: time.struct_time((2026, 1, 2, 12, 0, 0, 4, 2, 0)))
         self.pet_stats.total, self.pet_stats.today, self.pet_stats.born = 14, 5, time.time() - 3 * 86400
@@ -161,7 +163,20 @@ class DemoSource:
                                   note="Codex can only be answered in its terminal")] + without("d1", "d2")
 
     def poll(self):
-        return self.sessions
+        return [under_its_name(s, self.given.get(s["id"], "")) for s in self.sessions]
+
+    def desk(self):
+        return {s["id"]: {"name": self.given[s["id"]], "folder": s["p"]} for s in self.sessions if s["id"] in self.given}
+
+    def rename(self, sid, name):
+        if not any(s["id"] == sid for s in self.all):
+            return False, "that agent has gone"
+        name = clean_name(name)
+        if name:
+            self.given[sid] = name
+        else:
+            self.given.pop(sid, None)
+        return True, ""
 
     def pet(self):
         return self.pet_stats.message()
@@ -486,11 +501,21 @@ class HerdrSource:
         return self.pet_stats.message()
 
 
+def under_its_name(row: dict, name: str) -> dict:
+    """The row as the board lists it once its agent has a name: under that, in the letters the board has, where it
+    listed the folder. The row itself is left alone: a source may hand out the same one again."""
+    shown = fit(for_board(name), 27) if name else ""
+    return {**row, "p": shown} if shown else row
+
+
 class Fleet:
     """This Mac's sessions plus each remote machine's, as one list for the board."""
 
-    def __init__(self, local: HerdrSource, remotes: list = (), start=True, sessions=None, running=None, threads=None):
+    def __init__(self, local: HerdrSource, remotes: list = (), start=True, sessions=None, running=None, threads=None,
+                 names: AgentNames | None = None):
         self.local = local
+        self.names = names or AgentNames()   # the names people gave their agents: see agent_names.py
+        self.given: dict[str, dict] = {}     # row -> its name and the folder it stood for, for the app
         self.remotes = list(remotes)
         self.sessions = sessions  # Claude sessions outside herdr: see claude_sessions.py
         self.running = running    # any other agent outside herdr
@@ -551,7 +576,47 @@ class Fleet:
             rows += self._remote_rows(n, r)
         # the board holds 24: if there are more, what needs you must be among them
         rows.sort(key=row_order)
-        return rows
+        return self._named(rows)
+
+    def name_key(self, sid: str) -> str | None:
+        """What an agent's name is kept under, which no later agent may go by. For one herdr holds, that's its
+        terminal, which herdr numbers once and for all, where a pane's own number comes round again. For the rest
+        it's what they're listed by: a session, a thread, or a process. Another machine's are kept apart from this
+        Mac's by its host. None: not an agent that's there."""
+        source, pane = self._route(sid)
+        listed = getattr(source, "agents", {}).get(pane) if source else None
+        if listed is None:
+            return None
+        own = str(listed.get("terminal_id") or pane)
+        host = getattr(source, "host", None)
+        return f"{host}/{own}" if host else own
+
+    def _given(self, sid: str) -> str:
+        """The name it goes by: the one given here, else the one herdr has for it, if it was given one there."""
+        key = self.name_key(sid)
+        if key is None:
+            return ""
+        source, pane = self._route(sid)
+        return self.names.get(key) or clean_name(source.agents[pane].get("name"))
+
+    def _named(self, rows: list[dict]) -> list[dict]:
+        self.names.tidy()
+        given, out = {}, []
+        for row in rows:
+            name = self._given(row["id"])
+            if name:
+                given[row["id"]] = {"name": name, "folder": row.get("p", "")}
+            out.append(under_its_name(row, name))
+        self.given = given
+        return out
+
+    def rename(self, sid: str, name: str) -> tuple[bool, str]:
+        """Give an agent a name, or with "" take back the one given here, so it goes by its folder again."""
+        key = self.name_key(sid)
+        if key is None:
+            return False, "that agent has gone"
+        self.names.set(key, name)
+        return True, ""
 
     @property
     def focus_app(self):
@@ -564,6 +629,9 @@ class Fleet:
                 out.update(source.desk())
         for n, r in enumerate(self.remotes, 1):
             out.update({f"{n}/{pane}": extra for pane, extra in r.desk().items()})
+        # The name in full, as it was typed, and the folder the board's row no longer says.
+        for sid, name in self.given.items():
+            out[sid] = {**out.get(sid, {}), **name}
         return out
 
     def history(self, sid: str, limit: int = BOARD_ROWS, board: bool = True) -> list[dict]:
