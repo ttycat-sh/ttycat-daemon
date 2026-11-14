@@ -9,6 +9,7 @@ DAEMON = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(DAEMON))
 import ttycatd  # noqa: E402
 from agent_names import KEEP_PROCESS_S, KEEP_S, NAME_MAX, AgentNames, clean_name, for_board  # noqa: E402
+from devices import Devices  # noqa: E402
 from petstate import Pet  # noqa: E402
 from sources import DemoSource, Fleet, HerdrSource  # noqa: E402
 
@@ -259,9 +260,22 @@ class FromTheApp(unittest.TestCase):
         self.assertNotIn("name", rows(f)["w1:p1"])
         self.assertEqual(ttycatd.name_agent(object(), {"id": "w1:p1", "name": "x"}), {"ok": False, "msg": "agents can't be named here"})
 
-    def test_naming_isnt_something_the_board_can_ask_for(self):
-        self.assertNotIn("agent-name", ttycatd.APP_ACTIONS)
-        self.assertEqual(Source([agent("w1:p1")]).act("agent-name", "w1:p1", ""), (False, "unknown action"))
+    def test_a_device_names_an_agent_too_whatever_build_it_is(self):
+        f = fleet(agent("w1:p1"))
+        devices = Devices(Path(tempfile.mkdtemp()) / "devices.json")
+        for fw in ("0.9.1", "custom-0.9.1-a1b2c3d4"):  # naming answers nothing: it isn't kept for builds that may approve
+            typed = {"t": "act", "a": "name", "id": "w1:p1", "name": f"from {fw[:6]}"}
+            self.assertEqual(ttycatd.device_action(f, fw, devices, typed), (True, ""))
+            self.assertEqual(rows(f)["w1:p1"]["p"], f"from {fw[:6]}")
+        self.assertEqual(ttycatd.device_action(f, "0.9.1", devices, {"t": "act", "a": "name", "id": "w1:p1", "name": ""}), (True, ""))
+        self.assertEqual(rows(f)["w1:p1"]["p"], "shop")
+        self.assertEqual(ttycatd.device_action(f, "0.9.1", devices, {"t": "act", "a": "name", "id": "gone", "name": "x"}),
+                         (False, "that agent has gone"))
+
+    def test_a_name_is_no_way_to_answer_a_prompt(self):
+        # The name goes nowhere near a source's actions, where answers are: it isn't one of them.
+        self.assertEqual(Source([agent("w1:p1")]).act("name", "w1:p1", ""), (False, "unknown action"))
+        self.assertNotIn("name", ttycatd.APP_ACTIONS)
 
     def test_the_demo_can_be_named_too_and_keeps_nothing(self):
         demo = DemoSource()

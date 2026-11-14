@@ -56,13 +56,13 @@ herdr isn't required, on this Mac or on other machines. A session outside it jus
 
 ## Names for agents
 
-An agent goes by the folder it's in, so two in one folder look alike. The app can give one a name of its own, and so can `ttycatd.py agent-name ID [NAME]`; with no name it goes by its folder again. The board lists it under that name too, in the letters it has: an accent goes and its letter stays, and a name with none of the board's letters leaves it the folder.
+An agent goes by the folder it's in, so two in one folder look alike. The app can give one a name of its own, and so can the board, on its keyboard, and `ttycatd.py agent-name ID [NAME]`; with no name it goes by its folder again. The board lists it under that name too, in the letters it has: an accent goes and its letter stays, and a name with none of the board's letters leaves it the folder.
 
 - **ttycat keeps the names itself,** in `~/.ttycat/agent-names.json`, and the same way for every agent, whichever row of the table above it's from. Nothing is told to the agent, and nothing is written to herdr.
 - **What herdr calls an agent is its name here too,** if you named it there (`herdr agent rename`), until you give it one here.
 - **A name stays with the agent it was given to.** It's kept under something no later agent goes by: for one in herdr its terminal, which herdr numbers once, where a pane's number comes round again; for the rest its session, its thread, or its process. Another machine's are kept apart by its host.
 - **It outlives its agent by a month,** in case that session comes back. One known only by its process is forgotten ten minutes after the process goes.
-- **Only the app can name one.** The board has no keys, and its actions don't include it.
+- **A device names one with the `name` action,** `{"t":"act","a":"name","id":ID,"name":"..."}`, whatever build it is: a name answers nothing, so it isn't kept for builds that may approve. It's no source's action, so it can't reach a prompt.
 
 ## Answering prompts safely
 

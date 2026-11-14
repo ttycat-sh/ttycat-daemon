@@ -527,6 +527,9 @@ def device_action(source, fw: str | None, devices: Devices, m: dict) -> tuple[bo
     action = m.get("a", "")
     if not devices.permits(action, fw):
         return False, NOT_ALLOWED
+    if action == "name":  # a name for an agent, typed on the device: it answers nothing, so any device may
+        reply = name_agent(source, m)
+        return reply["ok"], reply["msg"]
     return source.act(action, m.get("id", ""), m.get("rev", ""), m.get("ans"))
 
 
@@ -669,7 +672,8 @@ def app_action(source, cmd: dict) -> dict:
 
 
 def name_agent(source, cmd: dict) -> dict:
-    """The app gives an agent a name, or with none takes it back: agent_names.py. The board can't: it has no keys."""
+    """The app gives an agent a name, or with none takes it back: agent_names.py. So does a device, with the
+    `name` action: on the board it's typed on the keyboard."""
     rename = getattr(source, "rename", None)
     if not rename:
         return {"ok": False, "msg": "agents can't be named here"}
