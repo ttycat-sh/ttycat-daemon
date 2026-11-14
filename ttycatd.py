@@ -5,6 +5,7 @@
   ttycatd.py demo                the design's sample data (nothing is answered)
   ttycatd.py hook install|remove|status   the Claude Code permission hook
   ttycatd.py pet [--name NAME]   see the pet, or rename it
+  ttycatd.py agent-name ID [NAME]   give an agent a name of your own, or with none take it back
   ttycatd.py status              the board the running daemon talks to: its build, and the last flash
   ttycatd.py flash FOLDER [--replace]   put a build on the board, through the running daemon
   ttycatd.py register-board FOLDER [--build DIR]   a board of your own, so the app can update its core
@@ -44,6 +45,7 @@ import plugins
 import prices
 import release
 import updates
+from agent_names import NAMES_FILE, AgentNames
 from approvals import HOOK_SOCK, Hub, HubScope
 from claude_sessions import ClaudeSessions, RunningAgents, is_session_pane
 from codex_threads import CodexThreads
@@ -388,7 +390,8 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                         pass
                     conn.close()
                     continue
-                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update", "register", "name", "updates"):  # the Mac app
+                if cmd.get("t") in ("status", "app-act", "activity", "flash", "look", "device", "core-update", "register", "name", "updates",
+                                    "agent-name"):  # the Mac app
                     if cmd["t"] == "status":
                         reply = status_message(source, board, flasher, look, devices, updater)
                         reply["updates"] = {**checker.info(), "firmware": checker.firmware_for(board.name, board.fw)
@@ -410,6 +413,9 @@ def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | Non
                     elif cmd["t"] == "updates":
                         checker.set_enabled(cmd.get("check") is not False)
                         reply = {"ok": True, "msg": ""}
+                    elif cmd["t"] == "agent-name":
+                        reply = name_agent(source, cmd)
+                        next_beat = 0  # the board lists it under its name right away too
                     elif cmd["t"] == "activity":
                         about = getattr(source, "about", None)
                         reply = {"items": source.history(str(cmd.get("id", "")), APP_ACTIVITY_ROWS, False),
@@ -521,6 +527,9 @@ def device_action(source, fw: str | None, devices: Devices, m: dict) -> tuple[bo
     action = m.get("a", "")
     if not devices.permits(action, fw):
         return False, NOT_ALLOWED
+    if action == "name":  # a name for an agent, typed on the device: it answers nothing, so any device may
+        reply = name_agent(source, m)
+        return reply["ok"], reply["msg"]
     return source.act(action, m.get("id", ""), m.get("rev", ""), m.get("ans"))
 
 
@@ -659,6 +668,17 @@ def app_action(source, cmd: dict) -> dict:
         return {"ok": False, "msg": "not available from the app"}
     ok, msg = source.act(action, str(cmd.get("id", "")), str(cmd.get("rev", "")), cmd.get("ans"), via="app")
     log("app action", action, cmd.get("id"), "ok" if ok else f"refused: {msg}")
+    return {"ok": ok, "msg": msg}
+
+
+def name_agent(source, cmd: dict) -> dict:
+    """The app gives an agent a name, or with none takes it back: agent_names.py. So does a device, with the
+    `name` action: on the board it's typed on the keyboard."""
+    rename = getattr(source, "rename", None)
+    if not rename:
+        return {"ok": False, "msg": "agents can't be named here"}
+    ok, msg = rename(str(cmd.get("id", "")), cmd.get("name") if isinstance(cmd.get("name"), str) else "")
+    log("agent name", cmd.get("id"), "ok" if ok else f"refused: {msg}")
     return {"ok": ok, "msg": msg}
 
 
@@ -808,6 +828,9 @@ def main():
     s.add_argument("addition", nargs="?")
     s = sub.add_parser("pet")
     s.add_argument("--name")
+    s = sub.add_parser("agent-name", help="give an agent a name of your own, through the running daemon")
+    s.add_argument("id", help="as `status` lists it")
+    s.add_argument("name", nargs="?", default="", help="left out: it goes by its folder again")
     s = sub.add_parser("flash", help="put a build on the board, through the running daemon")
     s.add_argument("folder", help="from tools/firmware_bundle.py")
     s.add_argument("--replace", action="store_true", help="overwrite custom firmware, or a port that stays silent")
@@ -852,7 +875,7 @@ def main():
             try:
                 running = RunningAgents(focus_app=a.focus_app, pet=pet)
                 threads = CodexThreads(focus_app=a.focus_app, pet=pet)
-                serve(Fleet(local, remotes, sessions=sessions, running=running, threads=threads), a.port,
+                serve(Fleet(local, remotes, sessions=sessions, running=running, threads=threads, names=AgentNames(NAMES_FILE)), a.port,
                       [hub, *(r.hub for r in remotes)], api)
             finally:
                 for r in remotes:
@@ -869,6 +892,10 @@ def main():
             ctl_send({"t": "pet-name", "name": a.name})
         else:
             print(json.dumps(json.loads(PET_FILE.read_text()), indent=2) if PET_FILE.exists() else "No pet yet.")
+    elif a.cmd == "agent-name":
+        reply = json.loads(ctl_send({"t": "agent-name", "id": a.id, "name": a.name}, want_reply=True) or b"{}")
+        if not reply.get("ok"):
+            sys.exit(reply.get("msg") or "the daemon didn't answer")
     elif a.cmd == "setup":
         print(json.dumps(setup_command(a.action, a.addition)))
     elif a.cmd == "hook":
