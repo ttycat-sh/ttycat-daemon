@@ -40,30 +40,35 @@ NOT_A_FAILURE = ("denied", "doesn't want to proceed", "rejected")  # someone sai
 QUIET_TOOLS = {"ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskOutput", "TaskStop"}
 
 
-def _path(value, cwd: str) -> str:
+def _path(value, cwd: str, longest: int | None = LONGEST_PATH) -> str:
+    """A file, as it's said: from the agent's folder, or from home. `longest`: cut to that, keeping its end, for
+    the board; None keeps all of it, for the app."""
     path = value if isinstance(value, str) else ""
     home = str(Path.home())
     if cwd and path.startswith(cwd.rstrip("/") + "/"):
         path = path[len(cwd.rstrip("/")) + 1:]
     elif path.startswith(home + "/"):
         path = "~" + path[len(home):]
-    return path if len(path) <= LONGEST_PATH else "..." + path[-(LONGEST_PATH - 3):]  # the file name is what matters
+    if longest is None or len(path) <= longest:
+        return path
+    return "..." + path[-(longest - 3):]  # the file name is what matters
 
 
 def _one_line(value) -> str:
     return " ".join(value.split()) if isinstance(value, str) else ""
 
 
-def tool_summary(name: str, args: dict, cwd: str = "") -> str | None:
-    """One line about a tool call. None: there's nothing worth showing."""
+def tool_summary(name: str, args: dict, cwd: str = "", longest: int | None = LONGEST_PATH) -> str | None:
+    """One line about a tool call. None: there's nothing worth showing. `longest`: how long a file's path may be
+    in it (_path)."""
     if name in QUIET_TOOLS:
         return None
     if name == "Bash":
         return _one_line(args.get("description")) or f"$ {_one_line(args.get('command'))}"
     if name in ("Read", "Edit", "Write"):
-        return f"{name} {_path(args.get('file_path'), cwd)}".strip()
+        return f"{name} {_path(args.get('file_path'), cwd, longest)}".strip()
     if name == "NotebookEdit":
-        return f"Edit {_path(args.get('notebook_path'), cwd)}".strip()
+        return f"Edit {_path(args.get('notebook_path'), cwd, longest)}".strip()
     if name == "Grep":
         return f'Search for "{_one_line(args.get("pattern"))}"'
     if name == "Glob":
@@ -134,10 +139,17 @@ class Event:
     kind: str        # tool | said | you
     tool_id: str = ""
     count: int = 1
+    whole: str = ""  # all of it, where `text` was cut short for the board: a long path, say
 
     @property
     def shown(self) -> str:
         return f"{self.text} x{self.count}" if self.count > 1 else self.text
+
+    @property
+    def shown_whole(self) -> str:
+        """As `shown`, for the app: all of it."""
+        text = self.whole or self.text
+        return f"{text} x{self.count}" if self.count > 1 else text
 
 
 class Trail:
@@ -183,9 +195,11 @@ class Trail:
                     if self.steps is not None:
                         self.steps += 1
                     self._may_make(block)
-                    text = tool_summary(str(block.get("name") or ""), block.get("input") or {}, str(entry.get("cwd") or ""))
+                    name, args, cwd = str(block.get("name") or ""), block.get("input") or {}, str(entry.get("cwd") or "")
+                    text = tool_summary(name, args, cwd)
                     if text:
-                        self._add(Event(at, 0, text, "tool", str(block.get("id") or "")))
+                        whole = tool_summary(name, args, cwd, longest=None) or ""
+                        self._add(Event(at, 0, text, "tool", str(block.get("id") or ""), whole=whole if whole != text else ""))
                 elif block.get("type") == "text":
                     text = said_summary(str(block.get("text") or ""))
                     if text:
@@ -253,11 +267,13 @@ class Trail:
             if event.tool_id and event.tool_id == block.get("tool_use_id"):
                 event.tone = 1
                 event.text = f"Failed: {event.text}"
+                if event.whole:
+                    event.whole = f"Failed: {event.whole}"
                 return
 
     def _add(self, event: Event):
         last = self.events[-1] if self.events else None
-        if last and last.kind == event.kind and last.text == event.text:
+        if last and last.kind == event.kind and last.text == event.text and last.whole == event.whole:
             last.at, last.tool_id = event.at, event.tool_id
             last.count += 1
         else:
@@ -419,6 +435,11 @@ class Activity:
         """The newest thing it did."""
         events = self.events(pane)
         return events[-1].shown if events else ""
+
+    def now_whole(self, pane: str) -> str:
+        """The same, for the app: all of it."""
+        events = self.events(pane)
+        return events[-1].shown_whole if events else ""
 
     def last_said(self, pane: str) -> str:
         """What it said at the end of this turn. An earlier turn's words would be about something else."""

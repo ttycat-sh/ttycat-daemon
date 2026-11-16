@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import subprocess
 import threading
 import time
@@ -31,8 +32,82 @@ ANSWER_SETTLES_S = 3.0   # herdr can still say "blocked" for a moment after an a
 BOARD_ROWS = 5           # the Recent rows on the board
 WHERE = {"board": "on board", "app": "in the app"}
 MAX_SAID = 200
+MAX_WORDS = 300  # what an agent is doing, in full, for the app: the board's line is 70
 SESSION_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")  # an ID, as agents make them: nothing else goes to the app as one
 RANK = {"blocked": 0, "error": 1, "done": 2, "working": 3, "idle": 4}
+MAX_BRANCH = 80
+DETACHED = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")  # a commit, where a checkout is on no branch
+
+
+def clean_branch(name) -> str | None:
+    """A branch's name as the app is given it: git never takes a space or a control character in one, so a
+    name with either isn't one, and goes nowhere."""
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    if not name or len(name) > MAX_BRANCH or any(c.isspace() or not c.isprintable() for c in name):
+        return None
+    return name
+
+
+# Folders macOS asks you about before an app may read in them, and other disks, which can be slow or gone: a
+# branch isn't worth a prompt or a wait. An agent working there has its branch from its log instead.
+ASKED_ABOUT = ("Desktop", "Documents", "Downloads", "Library/Mobile Documents", "Library/CloudStorage",
+               "Pictures", "Movies", "Music")
+
+
+def may_look_in(folder: str, home: str | None = None) -> bool:
+    """Whether a folder's git may be read for its branch: told from its name alone, touching nothing."""
+    path = os.path.normpath(folder)
+    home = os.path.normpath(home or str(Path.home()))
+    if not os.path.isabs(path) or path == "/Volumes" or path.startswith("/Volumes/"):
+        return False
+    return not any(path == f"{home}/{place}" or path.startswith(f"{home}/{place}/") for place in ASKED_ABOUT)
+
+
+def _small_file(path: Path, most: int = 256) -> str | None:
+    """A file's first bytes, if it's an ordinary file: never a pipe, a device, or anything else that could keep a
+    read waiting, or never end. None: it isn't one, or it can't be read."""
+    try:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        return os.read(fd, most).decode(errors="replace")
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def git_branch(folder: str) -> str | None:
+    """The branch a folder's checkout is on, from git's own HEAD: the folder's, or the nearest above it that's
+    a checkout, as git finds it. On no branch, the commit, cut short as git shows one. None: it isn't in a
+    checkout that can be read, or what's there isn't what git writes. Reads a small file or two; runs nothing.
+    It's asked once a second for each agent, on the loop the board and every answer go through: nothing it
+    reads may make it wait."""
+    start = Path(folder)
+    for place in (start, *start.parents):
+        dot = place / ".git"
+        try:
+            found = os.stat(dot)  # never opens it: a pipe here can't make it wait
+        except OSError:
+            continue
+        if stat.S_ISDIR(found.st_mode):
+            git = dot
+        else:  # a worktree or a submodule: a file that says where its git is
+            said = (_small_file(dot) or "").strip()
+            if not said.startswith("gitdir:"):
+                return None
+            git = place / said[len("gitdir:"):].strip()
+        head = (_small_file(git / "HEAD") or "").strip()
+        if head.startswith("ref: refs/heads/"):
+            name = head[len("ref: refs/heads/"):]
+            return None if name == ".invalid" else clean_branch(name)  # .invalid: a reftable repo's, which keeps it elsewhere
+        return head[:7] if DETACHED.fullmatch(head) else None
+    return None
 
 
 def row_order(row: dict):
@@ -219,6 +294,7 @@ class HerdrSource:
         self.agents: dict[str, dict] = {}
         self.states: dict[str, collections.deque] = {}  # status changes: all there is without a session log
         self.peek: set[str] = set()                     # panes someone is looking at
+        self.words: dict[str, str] = {}                 # pane -> what it's doing, where the board's line lost some of it
         self.activity = Activity(self._logs())
         self.harnesses = harness.known()
         self.processes = children.shared()
@@ -293,6 +369,19 @@ class HerdrSource:
             self.hub.prune({a["pane_id"]: a.get("agent_status", "unknown") for a in agents})
         self._follow(agents, now)
         out = []
+        words = {}
+
+        def doing(s: dict, state: str, text: str, whole: str = ""):
+            # The board's line, and for the app all of it, where the board's has lost some: its letters, its end,
+            # or the middle of a long path, which the log's line cuts for the board before this does (`whole`).
+            s.update(s=state, d=fit(text, 70))
+            whole = whole or text
+            if s["d"] != whole:
+                words[s["id"]] = whole
+
+        def now_whole(pane: str) -> str:
+            said = getattr(self.activity, "now_whole", None)
+            return said(pane) if said else ""
         alive = set()
         for a in agents:
             pane, status, kind = a["pane_id"], a.get("agent_status", "unknown"), a.get("agent", "")
@@ -363,13 +452,14 @@ class HerdrSource:
             else:
                 self.noted.pop(pane, None)
                 if status == "done" and pane in self.seen_done:
-                    s.update(s="idle", d=fit(title or "waiting for prompt", 70))
+                    doing(s, "idle", title or "waiting for prompt")
                 elif status == "done":
-                    s.update(s="done", d=fit(self.activity.last_said(pane) or title or "finished", 70))
+                    doing(s, "done", self.activity.last_said(pane) or title or "finished")
                 elif status == "working":
-                    s.update(s="working", d=fit(self.activity.now(pane) or title or "working", 70))
+                    now_doing = self.activity.now(pane)
+                    doing(s, "working", now_doing or title or "working", now_whole(pane) if now_doing else "")
                 elif status == "idle":
-                    s.update(s="idle", d=fit(title or "waiting for prompt", 70))
+                    doing(s, "idle", title or "waiting for prompt")
                 else:
                     s.update(s="idle", d="state unknown")
             out.append(s)
@@ -382,6 +472,7 @@ class HerdrSource:
         if self.hub:
             self.hub.keep_only(alive)
         self.last = out
+        self.words = words
         return out
 
     def desk(self) -> dict[str, dict]:
@@ -406,9 +497,28 @@ class HerdrSource:
             session = self._running(pane, a).session
             if session and SESSION_NAME.fullmatch(session):
                 extra["ses"] = session
+            whole = self.words.get(pane)
+            if whole:
+                extra["dl"] = "".join(c for c in " ".join(whole.split()) if c.isprintable())[:MAX_WORDS]
+            branch = self._branch(pane, a)
+            if branch:
+                extra["br"] = branch
             if extra:
                 out[pane] = extra
         return out
+
+    def _branch(self, pane: str, a: dict) -> str | None:
+        """The branch it works on, for its card. Its folder's, read here when the folder is on this Mac and may be
+        read without asking (may_look_in): that's so now, whatever agent it is. Otherwise, as for another
+        machine's, whose folder isn't here, the branch its own log last named: Claude names it with everything
+        it writes."""
+        cwd = a.get("foreground_cwd") or a.get("cwd") or ""
+        if cwd and not getattr(self, "host", None) and may_look_in(cwd):
+            found = git_branch(cwd)
+            if found:
+                return found
+        said = getattr(self.activity, "about", None)
+        return clean_branch(said(pane).get("branch")) if said else None
 
     def _running(self, pane: str, a: dict) -> harness.Running:
         session = (a.get("agent_session") or {}).get("value", "")
@@ -430,7 +540,7 @@ class HerdrSource:
         are ASCII; the app shows the text as it is."""
         self.peek.add(pane)
         # Newest first before sorting: calls made in one message share a timestamp, and the sort keeps ties in order.
-        events = [(e.at, e.tone, e.shown) for e in reversed(self.activity.events(pane))]
+        events = [(e.at, e.tone, e.shown if board else e.shown_whole) for e in reversed(self.activity.events(pane))]
         rows = events + list(self.hist.get(pane, ()))
         if not events:  # no log to read: an agent other than Claude, or a format this can't follow
             rows += list(self.states.get(pane, ()))
