@@ -563,6 +563,10 @@ class ToolLines(unittest.TestCase):
         self.assertTrue(line.endswith("/question.png"))
         self.assertLess(len(line), 60)
 
+    def test_the_app_can_have_the_whole_path(self):
+        path = "/private/tmp/" + "x" * 80 + "/question.png"
+        self.assertEqual(activity.tool_summary("Read", {"file_path": path}, "/repo", longest=None), "Read " + path)
+
     def test_housekeeping_is_left_out(self):
         self.assertIsNone(activity.tool_summary("ToolSearch", {}))
         self.assertIsNone(activity.tool_summary("TodoWrite", {"todos": [{"status": "pending"}]}))
@@ -830,6 +834,29 @@ class Recent(unittest.TestCase):
 
     def test_a_working_row_says_what_it_is_doing(self):
         self.assertEqual(self.source(tool("Edit", file_path="/repo/x.py")).row()["d"], "Edit x.py")
+
+    def test_a_long_path_is_cut_for_the_board_and_whole_for_the_app(self):
+        path = "/repo/" + "deep/" * 20 + "cands.png"
+        src = self.source(tool("Read", file_path=path))
+        row = src.row()
+        self.assertTrue(row["d"].startswith("Read ...") and row["d"].endswith("cands.png"), row["d"])
+        self.assertEqual(src.desk()["w:p1"]["dl"], "Read " + path[len("/repo/"):])
+        self.assertEqual(src.history("w:p1", board=False)[0]["text"], "Read " + path[len("/repo/"):])
+        self.assertTrue(src.history("w:p1")[0]["text"].startswith("Read ..."))  # the board's, as it was
+
+    def test_a_failed_call_says_so_whole_too(self):
+        path = "/repo/" + "deep/" * 20 + "cands.png"
+        failed = log_line("user", [{"type": "tool_result", "tool_use_id": "t1", "is_error": True, "content": "No such file"}])
+        src = self.source(tool("Read", "t1", file_path=path) + failed)
+        src.row()
+        self.assertEqual(src.history("w:p1", board=False)[0]["text"], "Failed: Read " + path[len("/repo/"):])
+        self.assertTrue(src.history("w:p1")[0]["text"].startswith("Failed: Read ..."))
+
+    def test_the_same_call_again_is_counted_whole_too(self):
+        path = "/repo/" + "deep/" * 20 + "cands.png"
+        src = self.source(tool("Read", "t1", file_path=path) + tool("Read", "t2", file_path=path))
+        src.row()
+        self.assertEqual(src.desk()["w:p1"]["dl"], "Read " + path[len("/repo/"):] + " x2")
 
     def test_recent_lists_tool_calls_not_status_words(self):
         src = self.source(tool("Edit", file_path="/repo/x.py"))
@@ -1109,6 +1136,122 @@ class Desk(unittest.TestCase):
         src = self.source(words=said("Looking at it"))
         src.row()
         self.assertNotIn("said", src.desk()["w:p1"])
+
+    def finished(self, text: str):
+        src = self.source(words=said(text))
+        src.row()
+        src.status = "done"
+        return src, src.row()
+
+    def test_what_the_boards_line_lost_the_app_has_in_full(self):
+        long = "All tests pass across the Pro, daemon, tools and Swift suites, including the four new ones."
+        src, row = self.finished(long)
+        self.assertEqual(row["d"], long[:70])
+        self.assertEqual(src.desk()["w:p1"]["dl"], long)
+        src, row = self.finished("Fertig: alles grün ✓")  # letters the board hasn't
+        self.assertEqual(src.desk()["w:p1"]["dl"], "Fertig: alles grün ✓")
+        self.assertNotIn("dl", row)  # the board's rows stay as they were
+
+    def test_a_line_the_board_has_whole_isnt_sent_twice(self):
+        src, _ = self.finished("Done.")
+        self.assertNotIn("dl", src.desk()["w:p1"])
+
+    def test_the_whole_line_is_one_line_of_what_can_be_shown(self):
+        src, _ = self.finished("first \x1b[31m\tsecond " + "x" * 400)
+        whole = src.desk()["w:p1"]["dl"]
+        self.assertTrue(whole.startswith("first [31m second x"), whole)
+        self.assertEqual(len(whole), sources.MAX_WORDS)
+
+    def checkout(self, head: str) -> Path:
+        """A folder in a checkout of git's whose HEAD says that: all of git that's read."""
+        top = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, top)
+        (top / ".git").mkdir()
+        (top / ".git" / "HEAD").write_text(head + "\n")
+        (top / "app" / "src").mkdir(parents=True)
+        return top
+
+    def at(self, folder: Path, words=b""):
+        src = self.source(words=words)
+        src.row()
+        src.agents["w:p1"]["foreground_cwd"] = str(folder)
+        return src
+
+    def test_the_branch_is_its_folders_from_gits_own_head(self):
+        top = self.checkout("ref: refs/heads/feature/cards")
+        self.assertEqual(self.at(top / "app" / "src").desk()["w:p1"]["br"], "feature/cards")
+        self.assertNotIn("br", self.source().poll()[0])  # the board's rows stay as they were
+
+    def test_a_worktree_says_where_its_git_is(self):
+        top = self.checkout("ref: refs/heads/main")
+        (top / ".git" / "worktrees" / "side").mkdir(parents=True)
+        (top / ".git" / "worktrees" / "side" / "HEAD").write_text("ref: refs/heads/side-branch\n")
+        (top / "side").mkdir()
+        (top / "side" / ".git").write_text("gitdir: ../.git/worktrees/side\n")
+        self.assertEqual(self.at(top / "side").desk()["w:p1"]["br"], "side-branch")
+
+    def test_on_no_branch_its_the_commit_cut_short(self):
+        top = self.checkout("4f1c2b9e" * 5)
+        self.assertEqual(self.at(top).desk()["w:p1"]["br"], "4f1c2b9")
+
+    def test_no_checkout_and_odd_heads_say_nothing(self):
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside)
+        self.assertIsNone(sources.git_branch(str(outside / "nowhere")))
+        for head in ("ref: refs/heads/bad\x1bname", "ref: refs/heads/two words", "ref: refs/heads/" + "x" * 81, "not git at all"):
+            self.assertNotIn("br", self.at(self.checkout(head)).desk()["w:p1"], head)
+
+    def test_nothing_in_a_checkout_can_make_it_wait_or_read_without_end(self):
+        top = self.checkout("ref: refs/heads/main")
+        (top / ".git" / "HEAD").unlink()
+        os.mkfifo(top / ".git" / "HEAD")  # a read of it would wait for a writer that never comes
+        started = time.monotonic()
+        self.assertIsNone(sources.git_branch(str(top)))
+        self.assertLess(time.monotonic() - started, 1)
+        other = self.checkout("ref: refs/heads/main")
+        (other / ".git" / "HEAD").unlink()
+        (other / ".git" / "HEAD").symlink_to("/dev/zero")  # a read of it would never end
+        self.assertIsNone(sources.git_branch(str(other)))
+        third = self.checkout("ref: refs/heads/main")
+        (third / "app" / ".git").mkdir()
+        os.mkfifo(third / "app" / "src" / ".git")  # a .git that's a pipe isn't a worktree's file either
+        self.assertIsNone(sources.git_branch(str(third / "app" / "src")))
+
+    def test_a_worktree_can_say_where_its_git_is_in_full(self):
+        top = self.checkout("ref: refs/heads/main")
+        (top / ".git" / "worktrees" / "w").mkdir(parents=True)
+        (top / ".git" / "worktrees" / "w" / "HEAD").write_text("ref: refs/heads/far\n")
+        elsewhere = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, elsewhere)
+        (elsewhere / ".git").write_text(f"gitdir: {top / '.git' / 'worktrees' / 'w'}\n")
+        self.assertEqual(sources.git_branch(str(elsewhere)), "far")
+
+    def test_a_reftable_repo_has_its_branch_from_the_log(self):
+        line = log_line("assistant", [{"type": "text", "text": "ok"}], gitBranch="kept-in-reftable")
+        src = self.at(self.checkout("ref: refs/heads/.invalid"), words=line)
+        self.assertEqual(src.desk()["w:p1"]["br"], "kept-in-reftable")
+
+    def test_folders_macos_asks_about_are_never_read(self):
+        home = "/Users/me"
+        for folder in ("/Users/me/Documents/app", "/Users/me/Desktop", "/Users/me/Downloads/x/y",
+                       "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/app", "/Volumes/Backup/app",
+                       "/Users/me/Documents/../Documents/app", "relative/app"):
+            self.assertFalse(sources.may_look_in(folder, home), folder)
+        for folder in ("/Users/me/Repositories/app", "/Users/me/DocumentsOld/app", "/tmp/app", "/Users/me"):
+            self.assertTrue(sources.may_look_in(folder, home), folder)
+
+    def test_an_agent_in_such_a_folder_has_its_branch_from_the_log(self):
+        line = log_line("assistant", [{"type": "text", "text": "ok"}], gitBranch="from-the-log")
+        src = self.at(self.checkout("ref: refs/heads/main"), words=line)
+        with mock.patch.object(sources, "may_look_in", return_value=False), \
+                mock.patch.object(sources, "git_branch", side_effect=AssertionError("read")):
+            self.assertEqual(src.desk()["w:p1"]["br"], "from-the-log")
+
+    def test_where_the_folder_isnt_here_the_log_says_it(self):
+        line = log_line("assistant", [{"type": "text", "text": "ok"}], gitBranch="from-the-log")
+        src = self.at(self.checkout("ref: refs/heads/main"), words=line)
+        src.host = "studio"  # another machine's: a folder of that name here is no clue to it
+        self.assertEqual(src.desk()["w:p1"]["br"], "from-the-log")
 
     def test_control_characters_never_reach_a_notification(self):
         src = self.source(words=said("ok\x1b[31m \u202eevil"))

@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -167,6 +168,7 @@ class InTheStatus(unittest.TestCase):
         source.harnesses = {"claude": Claude(root=root)}
         source.processes = stayed([(10, 1, "claude"), (11, 10, OWN_SHELL)])
         source.procs = {SESSION: (10, 0.0)}
+        source.activity.logs = types.SimpleNamespace(read=lambda wanted: {})  # never this Mac's own logs
         source.listed = [{"pane_id": "p1", "agent": "claude", "agent_status": "working", "cwd": "/work/shop",
                           "agent_session": {"value": SESSION}},
                          {"pane_id": "p2", "agent": "gemini", "agent_status": "working", "cwd": "/work/shop"}]
