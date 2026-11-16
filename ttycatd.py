@@ -74,7 +74,7 @@ HEARTBEAT_S = 1.0
 HELLO_WAIT_S = 6.0  # a board says what it runs after 2 s without hearing anything, and booting takes a moment
 PROTOCOL = 1  # what a device has to speak. Goes up when a change would break one that's already built
 RELEASES_ADDED = paths.state_dir() / "core" / "releases"  # from core-add, and from ttycat's update server (updates.py)
-RELEASES_IN_APP = Path(__file__).resolve().parent.parent / "core"  # ttycat-app's build.sh puts the app's own here
+RELEASES_IN_APP = Path(__file__).resolve().parent.parent / "core"  # the Mac app's build puts its own here
 SERIAL_PORTS = ("/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.wchusbserial*", "/dev/cu.SLAB_USBtoUART*")
 
 

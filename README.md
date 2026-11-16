@@ -6,7 +6,7 @@ The part of [ttycat](https://github.com/ttycat-sh/ttycat-firmware) that runs on 
 |---|---|
 | [ttycat-firmware](https://github.com/ttycat-sh/ttycat-firmware) | the board's firmware, and the protocol: `docs/PROTOCOL.md` |
 | **ttycat-daemon** | this: the daemon, the hook, and the release formats it checks |
-| [ttycat-app](https://github.com/ttycat-sh/ttycat-app) | the menu bar app, which carries this daemon and runs it |
+| The Mac app, from [ttycat.sh](https://www.ttycat.sh) | the menu bar app, which carries this daemon and runs it |
 
 ## Run it
 

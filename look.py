@@ -1,5 +1,5 @@
 """How Bit and the board look: a number for each, into the tables below. 0 is the default for both.
-The firmware (main/gfx.c in ttycat-firmware) and the app (Sources/TTYCat/Look.swift in ttycat-app) have
+The firmware (main/gfx.c in ttycat-firmware) and the Mac app have
 the same tables, in the same order: each one's CI checks itself against these."""
 from __future__ import annotations
 
