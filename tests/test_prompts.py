@@ -1144,7 +1144,7 @@ class Desk(unittest.TestCase):
         return src, src.row()
 
     def test_what_the_boards_line_lost_the_app_has_in_full(self):
-        long = "All tests pass across the Pro, daemon, tools and Swift suites, including the four new ones."
+        long = "All tests pass across the firmware, daemon, tools and Swift suites, including the four new ones."
         src, row = self.finished(long)
         self.assertEqual(row["d"], long[:70])
         self.assertEqual(src.desk()["w:p1"]["dl"], long)

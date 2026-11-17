@@ -8,7 +8,7 @@ and the terminal prompt is simply still there.
 
 Install it with: ttycatd.py hook install
 
-It also runs on other machines, on whatever Python they have (macOS's own is 3.9): see remote_hook.py, in Pro.
+It may run on other machines too, on whatever Python they have (macOS's own is 3.9), so it keeps to what 3.9 runs.
 """
 from __future__ import annotations
 
