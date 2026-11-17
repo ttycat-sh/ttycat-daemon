@@ -3,7 +3,7 @@
 
 Prints the secret, to keep only where releases are signed (TTYCAT_SIGNING_KEY in ttycat-firmware's
 release environments, for firmware and core releases), and the public half. The app's update keys
-are made with it too, without --add: their public halves are in ttycat-app's tools/app_build.py.
+are made with it too, without --add: their public halves are built into the app.
 --add also puts the public half in release_keys.json, so apps built
 from here on trust it. Apps already out there only trust the keys they shipped with: keep the
 secret safe, and back it up, or releases can't reach them.
