@@ -7,7 +7,9 @@ import json
 import os
 from pathlib import Path
 
-LOOK_FILE = Path.home() / ".ttycat" / "look.json"
+import paths
+
+LOOK_FILE = paths.state_dir() / "look.json"
 # (name, body, shade)
 SKIN_COLOURS = [("Ember", 0xFF6A13, 0xB84A0C), ("Mint", 0x3FD38A, 0x1F8F58), ("Ice", 0x5AB8FF, 0x2E78B8),
                 ("Grape", 0xB07CFF, 0x7443C4), ("Rose", 0xFF6FA8, 0xB83E72), ("Mono", 0xD8D8D8, 0x8A8A8A)]

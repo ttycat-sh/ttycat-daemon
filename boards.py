@@ -18,8 +18,9 @@ import shutil
 from pathlib import Path
 
 from flasher import make_image, read_image
+import paths
 
-BOARDS_DIR = Path.home() / ".ttycat" / "boards"
+BOARDS_DIR = paths.state_dir() / "boards"
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 API = re.compile(r"^set\(BOARD_API ([0-9]+)\)", re.M)
 CUSTOM = re.compile(r"(.+)-([0-9]+(?:\.[0-9]+)*)-([0-9a-f]{8})")

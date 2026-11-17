@@ -32,6 +32,15 @@ To see every screen without touching real sessions, use the design's sample data
 python3 ttycatd.py demo
 ```
 
+To try a change beside the daemon you use, give the second one a folder of its own and no board. It keeps its sockets, lock and files there, opens no serial port and won't flash. `TTYCAT_CLAUDE_SETTINGS` points its `hook install` at another file, so the hook Claude runs stays as it is:
+
+```sh
+TTYCAT_HOME=/tmp/ttycat-second TTYCAT_CLAUDE_SETTINGS=/tmp/ttycat-second/claude-settings.json \
+  python3 ttycatd.py --no-board demo
+```
+
+A hook run with `TTYCAT_HOME` set, or `TTYCAT_HOOK_SOCK`, asks that daemon. Everything else is kept in `~/.ttycat`.
+
 ## Where agents come from
 
 | Where | Which agents | Its state | Answer from the board or app |

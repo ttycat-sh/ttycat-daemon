@@ -17,6 +17,8 @@ import threading
 import time
 from datetime import datetime
 
+import paths
+
 CACHE_VERSION = 1
 LONGEST_LINE = 8_000_000  # bigger ones are pasted images, not usage
 KEEP_REPLIES_DAYS = 14    # long enough to notice a resumed session copying old replies
@@ -45,7 +47,7 @@ class TokenDays:
 
     def __init__(self, since: str, home: str | None = None, path: str | None = None):
         self.home = home or os.path.expanduser("~")
-        self.path = path if path is not None else os.path.join(self.home, ".ttycat", "token-days.json")
+        self.path = path if path is not None else str(paths.state_dir(home) / "token-days.json")
         self.since = since
         self.since_ts = time.mktime(time.strptime(since, "%Y-%m-%d"))
         self.c = {"v": CACHE_VERSION, "files": {}, "replies": {}, "days": {}}

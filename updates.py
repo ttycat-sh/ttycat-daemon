@@ -29,10 +29,11 @@ import release
 from boards import Boards, board_api, idf_version
 from devices import is_custom
 from flasher import read_image
+import paths
 
 UPDATES_URL = "https://api.ttycat.sh/v1/updates"
 URL_ENV = "TTYCAT_UPDATES_URL"  # a developer's build's server, such as ttycat-server's compose.yaml: http allowed
-HOME = Path.home() / ".ttycat"  # updates.json (the setting), install-id, firmware/, core/releases/
+HOME = paths.state_dir()  # updates.json (the setting), install-id, firmware/, core/releases/
 EVERY_S = 3600
 TIMEOUT_S = 30
 MAX_ANSWER = 256 * 1024
@@ -79,7 +80,7 @@ def install_id(home: Path) -> str:
             continue
         finally:
             temp.unlink(missing_ok=True)
-    raise OSError("couldn't make ~/.ttycat/install-id")
+    raise OSError(f"couldn't make {path}")
 
 
 class Checker:

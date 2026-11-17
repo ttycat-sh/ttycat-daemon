@@ -19,7 +19,9 @@ def terminal():
     return far, os.ttyname(near), near
 
 
-class Ports(unittest.TestCase):
+class TwoPorts(unittest.TestCase):
+    """Two terminals standing in for serial ports, and the daemon's board looking at them."""
+
     def setUp(self):
         self.first = terminal()
         self.second = terminal()
@@ -33,6 +35,8 @@ class Ports(unittest.TestCase):
         self.board = ttycatd.Board(None)
         self.addCleanup(self.board.close)
 
+
+class Ports(TwoPorts):
     def later(self):
         return self.board.opened_at + ttycatd.HELLO_WAIT_S
 
@@ -171,6 +175,40 @@ class Flashing(unittest.TestCase):
         self.board.fd, self.board.path, self.board.fw = 9, "/dev/b", "0.9.1"
         self.board.silent = {"/dev/c"}
         self.assertFalse(self.flash(port="/dev/c", unknown=True)["ok"])
+        self.assertEqual(self.flasher.calls, [])
+
+
+class WithoutABoard(TwoPorts):
+    """--no-board: a second daemon beside the one in use, which holds the port. It opens none, and writes to none."""
+
+    class Flasher(Flashing.Flasher):
+        busy = False
+
+    def setUp(self):
+        super().setUp()
+        self.board.enabled = False
+        self.board.silent = set(self.ports)  # as if each had been tried and stayed silent
+        self.flasher = self.Flasher()
+
+    def test_no_port_is_opened(self):
+        self.board.silent = set()
+        self.assertFalse(self.board.open())
+        self.assertIsNone(self.board.fd)
+
+    def test_not_even_a_named_one(self):
+        named = ttycatd.Board(self.ports[0], enabled=False)
+        self.assertFalse(named.open())
+
+    def test_nothing_is_flashed_even_to_a_silent_port_named(self):
+        reply = ttycatd.start_flash(self.board, self.flasher, {"dir": "/x", "port": self.ports[0], "unknown": True})
+        self.assertEqual(reply, ttycatd.NO_BOARD)
+        self.assertEqual(self.flasher.calls, [])
+
+    def test_nor_registered_nor_updated(self):
+        self.board.fd, self.board.fw, self.board.name = 9, "0.9.1-mine", "mine"  # as if, though it can't be
+        self.assertEqual(ttycatd.start_register(self.board, self.flasher, None, {"folder": "/x"}), ttycatd.NO_BOARD)
+        self.assertEqual(ttycatd.start_core_update(self.board, self.flasher, None), ttycatd.NO_BOARD)
+        self.board.fd = None
         self.assertEqual(self.flasher.calls, [])
 
 

@@ -29,11 +29,12 @@ from pathlib import Path
 from typing import Callable
 
 import build_info
+import paths
 
 PRICES_URL = "https://api.ttycat.sh/v1/model-insights/prices"
 PATH = "/v1/model-insights/prices"
 URL_ENV = "TTYCAT_PRICES_URL"  # a developer's build's server, such as one on this Mac: http allowed
-HOME = Path.home() / ".ttycat"
+HOME = paths.state_dir()
 EVERY_S = 24 * 3600
 AGAIN_S = 3600  # after an answer that couldn't be used
 TIMEOUT_S = 30

@@ -25,7 +25,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-HOOK_SOCK = Path.home() / ".ttycat" / "hook.sock"
+import paths
+
+HOOK_SOCK = paths.state_dir() / "hook.sock"
 MAX_BODY = 1000      # what the board holds. Anything longer isn't offered: nothing is approved unseen.
 MAX_REQUEST = 4 * 1024 * 1024
 GRACE_S = 3.0        # herdr notices a prompt a moment after the hook does
