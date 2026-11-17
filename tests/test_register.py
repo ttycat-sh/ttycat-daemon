@@ -155,7 +155,7 @@ class Board:
     """What start_register reads of the daemon's board."""
     def __init__(self, fw=FW, name="my-board"):
         self.fd, self.fw, self.name, self.path, self.silent = 3, fw, name, "/dev/cu.test", {"/dev/cu.other"}
-        self.closed = False
+        self.enabled, self.closed = True, False
 
     def close(self):
         self.fd, self.closed = None, True

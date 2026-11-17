@@ -16,7 +16,9 @@ import time
 from datetime import date
 from pathlib import Path
 
-PET_FILE = Path.home() / ".ttycat" / "pet.json"
+import paths
+
+PET_FILE = paths.state_dir() / "pet.json"
 
 NIGHT = (22, 7)
 SAVE_EVERY_S = 60

@@ -17,7 +17,11 @@ import os
 import socket
 import sys
 
-SOCK = os.environ.get("TTYCAT_HOOK_SOCK") or os.path.expanduser("~/.ttycat/hook.sock")
+# The daemon's state folder is TTYCAT_HOME when that's a whole path (see paths.py, which this doesn't import, so it
+# can run alone).
+_HOME = os.environ.get("TTYCAT_HOME", "")
+SOCK = os.environ.get("TTYCAT_HOOK_SOCK") or (os.path.join(_HOME, "hook.sock") if os.path.isabs(_HOME)
+                                              else os.path.expanduser("~/.ttycat/hook.sock"))
 
 
 def wait_for_answer(pane: str, request: dict) -> dict | None:

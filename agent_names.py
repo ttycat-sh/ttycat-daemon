@@ -14,8 +14,9 @@ import unicodedata
 from pathlib import Path
 
 from discovery import PROCESS_PREFIX
+import paths
 
-NAMES_FILE = Path.home() / ".ttycat" / "agent-names.json"
+NAMES_FILE = paths.state_dir() / "agent-names.json"
 NAME_MAX = 40
 KEEP_S = 30 * 86400
 KEEP_PROCESS_S = 600

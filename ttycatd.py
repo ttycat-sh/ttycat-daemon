@@ -41,6 +41,7 @@ from pathlib import Path
 import art
 import harness
 import integrations
+import paths
 import plugins
 import prices
 import release
@@ -58,21 +59,21 @@ from petstate import PET_FILE, Pet
 import token_days
 from sources import DemoSource, Fleet, HerdrSource
 
-CTL_PATH = Path.home() / ".ttycat" / "ctl.sock"
-LOCK_PATH = Path.home() / ".ttycat" / "daemon.lock"
+CTL_PATH = paths.state_dir() / "ctl.sock"
+LOCK_PATH = paths.state_dir() / "daemon.lock"
 ALREADY_RUNNING = 3  # exit status the Mac app looks for
 # All the app may do. An answer needs the exact prompt's rev: see approvals.Hub.answer.
 APP_ACTIONS = {"open", "seen", "allow", "answer", "deny",
                "pet-pat", "pet-here"}
 APP_ACTIVITY_ROWS = 30
 MAX_CTL_REQUEST = 256 * 1024
-CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
+CLAUDE_SETTINGS = paths.claude_settings()
 HOOK_SCRIPT = Path(__file__).resolve().parent / "hook.py"
 HOOK_TIMEOUT_S = 86400  # the terminal prompt stays usable meanwhile: see approvals.py
 HEARTBEAT_S = 1.0
 HELLO_WAIT_S = 6.0  # a board says what it runs after 2 s without hearing anything, and booting takes a moment
 PROTOCOL = 1  # what a device has to speak. Goes up when a change would break one that's already built
-RELEASES_ADDED = Path.home() / ".ttycat" / "core" / "releases"  # from core-add, and from ttycat's update server (updates.py)
+RELEASES_ADDED = paths.state_dir() / "core" / "releases"  # from core-add, and from ttycat's update server (updates.py)
 RELEASES_IN_APP = Path(__file__).resolve().parent.parent / "core"  # ttycat-app's build.sh puts the app's own here
 SERIAL_PORTS = ("/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/cu.wchusbserial*", "/dev/cu.SLAB_USBtoUART*")
 
@@ -95,8 +96,9 @@ class Board:
     can offer that.
     """
 
-    def __init__(self, port: str | None):
+    def __init__(self, port: str | None, enabled: bool = True):
         self.want = port
+        self.enabled = enabled  # off: no port is opened, and nothing is written to one (see NO_BOARD)
         self.path: str | None = None
         self.fw: str | None = None
         self.name: str | None = None  # which folder in ttycat-firmware's boards/ it was built from
@@ -114,6 +116,8 @@ class Board:
         self.dim = False  # its screen has gone dim, and Bit dozes there
 
     def next_port(self) -> str | None:
+        if not self.enabled:
+            return None
         if self.want:
             return self.want if os.path.exists(self.want) else None
         ports = serial_ports()
@@ -247,11 +251,11 @@ def rgb565_to_png(path: str, frame: bytes, w=240, h=320):
         f.write(chunk(b"IEND", b""))
 
 
-def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | None = None):
+def serve(source, port: str | None, hubs: list[Hub] = (), api: plugins.Api | None = None, board_on: bool = True):
     api = api or plugins.Api()
     look = Look()
     devices = Devices()
-    board = Board(port)
+    board = Board(port, enabled=board_on)
     flasher = Flasher(log)
     updater = Updater(Boards(), release.Releases([RELEASES_IN_APP, RELEASES_ADDED]), devices, log)
     checker = updates.Checker(log=log)
@@ -533,8 +537,13 @@ def device_action(source, fw: str | None, devices: Devices, m: dict) -> tuple[bo
     return source.act(action, m.get("id", ""), m.get("rev", ""), m.get("ans"))
 
 
+NO_BOARD = {"ok": False, "msg": "this daemon runs without a board"}
+
+
 def start_flash(board: Board, flasher: Flasher, cmd: dict) -> dict:
     """A named port is one that's stayed silent: the person was told which one would be overwritten."""
+    if not board.enabled:
+        return NO_BOARD
     connected = board.fd is not None and board.fw is not None
     port, fw, name = (board.path, board.fw, board.name) if connected else (None, None, None)
     asked = cmd.get("port")
@@ -568,6 +577,8 @@ def start_register(board: Board, flasher: Flasher, updater: Updater, cmd: dict, 
     what it runs now is read back off it, as the copy to put back if an update fails. Nothing is
     written to it. Being allowed to approve doesn't carry over to the first update: the folder chosen
     may not be what this build came from, so the build after it is a new one to allow."""
+    if not board.enabled:
+        return NO_BOARD
     boards = boards or Boards()
     if board.fd is None or board.fw is None or not board.name:
         return {"ok": False, "msg": "no board connected"}
@@ -635,6 +646,8 @@ def set_label(board: Board, devices: Devices, cmd: dict) -> dict:
 def start_core_update(board: Board, flasher: Flasher, updater: Updater) -> dict:
     """Setup's Update for a board of the person's own. Its build is theirs, so writing over it is
     expected: only ever with a build of their own folder, and the build it had goes back if this fails."""
+    if not board.enabled:
+        return NO_BOARD
     if board.fd is None or board.fw is None:
         return {"ok": False, "msg": "no board connected"}
     if flasher.busy:
@@ -810,6 +823,8 @@ def main():
     api = plugins.load(early.parse_known_args()[0].plugin, log)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", help="serial port (default: the first one that says hello)")
+    ap.add_argument("--no-board", action="store_true",
+                    help="open no serial port, and refuse to flash: for a second daemon beside the one in use")
     ap.add_argument("--plugin", help="a folder holding ttycat_plugin.py: see plugins.py")
     sub = ap.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run")
@@ -876,7 +891,7 @@ def main():
                 running = RunningAgents(focus_app=a.focus_app, pet=pet)
                 threads = CodexThreads(focus_app=a.focus_app, pet=pet)
                 serve(Fleet(local, remotes, sessions=sessions, running=running, threads=threads, names=AgentNames(NAMES_FILE)), a.port,
-                      [hub, *(r.hub for r in remotes)], api)
+                      [hub, *(r.hub for r in remotes)], api, board_on=not a.no_board)
             finally:
                 for r in remotes:
                     r.stop()
@@ -884,7 +899,7 @@ def main():
             pass
     elif a.cmd == "demo":
         try:
-            serve(DemoSource(), a.port)
+            serve(DemoSource(), a.port, board_on=not a.no_board)
         except KeyboardInterrupt:
             pass
     elif a.cmd == "pet":
@@ -934,7 +949,7 @@ def main():
             if flash["state"] == "done":
                 break
         if not (status.get("core") or {}).get("registered"):
-            sys.exit("register-board: read, but not registered: see ~/.ttycat/ttycatd.log")
+            sys.exit(f"register-board: read, but not registered: see {paths.state_dir() / 'ttycatd.log'}")
         print("registered", status["board"]["name"], "from", os.path.abspath(a.folder))
     elif a.cmd == "register-board":
         try:

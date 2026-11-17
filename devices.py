@@ -21,7 +21,9 @@ import os
 import re
 from pathlib import Path
 
-DEVICES_FILE = Path.home() / ".ttycat" / "devices.json"
+import paths
+
+DEVICES_FILE = paths.state_dir() / "devices.json"
 APPROVING = {"allow", "answer"}  # an answer to a question can be permission too
 NOT_ALLOWED = "Can't approve from here: see Setup on the Mac"
 MAX_NAME = 48

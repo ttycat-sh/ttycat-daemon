@@ -23,8 +23,9 @@ from pathlib import Path
 import release
 from boards import Boards, board_api, core_of, folder_hash, idf_version
 from flasher import make_image, read_image
+import paths
 
-WORK_DIR = Path.home() / ".ttycat" / "core"
+WORK_DIR = paths.state_dir() / "core"
 BUILD_TIMEOUT_S = 30 * 60  # the first build also fetches the board's drivers
 NINJA = re.compile(r"^\[(\d+)/(\d+)\]")  # [12/80], when ESP-IDF builds with Ninja
 MAKE = re.compile(r"^\[\s*(\d+)%\]")  # [ 37%], with Make
