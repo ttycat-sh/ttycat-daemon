@@ -79,7 +79,8 @@ class Server:
 
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.base = f"http://127.0.0.1:{self.http.server_address[1]}"
-        threading.Thread(target=self.http.serve_forever, daemon=True).start()
+        # It looks for being told to stop every 10 ms, not every half second: shutdown() waits for that look.
+        threading.Thread(target=self.http.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
 
     def offer_firmware(self, envelope, files, board=C5, version=None):
         version = version or json.loads(envelope["body"])["version"]
