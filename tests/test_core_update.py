@@ -19,6 +19,7 @@ import release
 from boards import Boards, board_api, core_of, folder_hash
 from core_update import Updater
 from flasher import make_image, read_image
+from patience import PATIENCE
 
 SECRET = bytes(range(32))
 PUBLIC = ed25519.public_key(SECRET)
@@ -222,7 +223,7 @@ class Registered(unittest.TestCase):
                        log=lambda *a: None, work=self.dir / "work", keys=KEYS)
 
     def build(self, up: Updater):
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + PATIENCE
         while up.fd is not None and time.monotonic() < deadline:
             select.select([up.fd], [], [], 1)
             up.on_output()

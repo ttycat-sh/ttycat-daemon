@@ -18,6 +18,7 @@ import ttycatd  # noqa: E402
 from boards import Boards, folder_hash, layout  # noqa: E402
 from core_update import Updater  # noqa: E402
 from test_core_update import KEYS, Devices, make_release  # noqa: E402
+from patience import PATIENCE  # noqa: E402
 
 FW = "custom-0.10.6-0ba51279"
 
@@ -84,7 +85,7 @@ class Reading(unittest.TestCase):
 
     def read(self, f, fw=FW) -> tuple[bool, str]:
         ok, msg = f.start_read("/dev/cu.test", fw, "my-board", self.where, self.dir / "out", self.source)
-        end = time.monotonic() + 20
+        end = time.monotonic() + PATIENCE
         while f.fd is not None and time.monotonic() < end:
             if select.select([f.fd], [], [], 0.1)[0]:
                 f.on_output()
@@ -196,7 +197,7 @@ class FromSetup(Reading):
         self.assertEqual(self.register(f, board), {"ok": True, "msg": ""})
         self.assertTrue(board.closed)  # esptool gets the port
         self.assertEqual(board.silent, set())
-        end = time.monotonic() + 20
+        end = time.monotonic() + PATIENCE
         while f.fd is not None and time.monotonic() < end:
             if select.select([f.fd], [], [], 0.1)[0]:
                 f.on_output()
