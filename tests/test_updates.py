@@ -6,10 +6,9 @@ import os
 import sys
 import tarfile
 import tempfile
-import threading
 import unittest
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from unittest import mock
 
@@ -19,6 +18,7 @@ import ed25519
 import release
 import updates
 from boards import Boards
+from local_server import LocalServer
 
 SECRET = bytes(range(32))
 KEYS = {release.key_id(ed25519.public_key(SECRET)): ed25519.public_key(SECRET)}
@@ -77,10 +77,8 @@ class Server:
             def log_message(self, *a):
                 pass
 
-        self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.http = LocalServer(("127.0.0.1", 0), Handler).start()
         self.base = f"http://127.0.0.1:{self.http.server_address[1]}"
-        # It looks for being told to stop every 10 ms, not every half second: shutdown() waits for that look.
-        threading.Thread(target=self.http.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
 
     def offer_firmware(self, envelope, files, board=C5, version=None):
         version = version or json.loads(envelope["body"])["version"]

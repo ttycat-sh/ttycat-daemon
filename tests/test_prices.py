@@ -2,15 +2,15 @@
 import json
 import sys
 import tempfile
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import plugins
 import prices
+from local_server import LocalServer
 
 TABLE = {"fetched_at": "2026-11-11T06:00:00Z", "currency": "USD", "per": 1_000_000, "models": [
     {"provider": "anthropic", "model": "claude-sonnet-4-5", "input": 3, "output": 15, "cache_read": 0.3, "cache_write": 3.75, "source": "litellm"},
@@ -48,9 +48,7 @@ class Server:
             def log_message(self, *_):
                 pass
 
-        self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        # It looks for being told to stop every 10 ms, not every half second: shutdown() waits for that look.
-        threading.Thread(target=self.http.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        self.http = LocalServer(("127.0.0.1", 0), Handler).start()
         self.url = f"http://127.0.0.1:{self.http.server_port}/v1/model-insights/prices"
 
     def close(self):
