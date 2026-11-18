@@ -597,7 +597,20 @@ class Trail(unittest.TestCase):
         early = self.fed(reply("claude-a", 5000))
         self.assertEqual(early.about(), {"model": "claude-a", "ctx": 5010, "branch": "fix-cart"})  # no prompt seen: its tools aren't counted
         trail = self.fed(reply("claude-a", 5000), log_line("user", "now the tests"), reply("claude-b", 9000, 2), reply("<synthetic>", 0, 1))
-        self.assertEqual(trail.about(), {"model": "claude-b", "ctx": 9010, "branch": "fix-cart", "steps": 3})
+        self.assertEqual(trail.about(), {"model": "claude-b", "ctx": 9010, "branch": "fix-cart", "steps": 3, "cwd": "/repo"})
+
+    def test_its_folder_is_the_last_the_log_named(self):
+        there = lambda folder: log_line("assistant", [{"type": "text", "text": "ok"}], cwd=folder)
+        self.assertEqual(self.fed(there("/work"), there("/work/shop")).about()["cwd"], "/work/shop")
+        self.assertEqual(self.fed(there("/work/shop"), there("/work")).about()["cwd"], "/work")  # it follows it back out too
+        for odd in ("shop", "", None, 7, "/work/\x1b[31m", "/" + "x" * 300):  # not a folder's whole path: the last that was one stays
+            self.assertEqual(self.fed(there("/work/shop"), there(odd)).about()["cwd"], "/work/shop", odd)
+
+    def test_claudes_word_for_no_branch_isnt_a_branchs_name(self):
+        on = lambda branch: log_line("assistant", [{"type": "text", "text": "ok"}], gitBranch=branch)
+        self.assertNotIn("branch", self.fed(on("HEAD")).about())  # started outside any checkout
+        self.assertNotIn("branch", self.fed(on("main"), on("HEAD")).about())  # or it has left its branch since
+        self.assertEqual(self.fed(on("HEAD"), on("main")).about()["branch"], "main")
 
     def test_only_a_request_the_agent_made_lately_is_its_own(self):
         def result(tool_id, text, at="2026-11-02T09:00:00Z", **extra):
@@ -1227,6 +1240,27 @@ class Desk(unittest.TestCase):
         self.addCleanup(shutil.rmtree, elsewhere)
         (elsewhere / ".git").write_text(f"gitdir: {top / '.git' / 'worktrees' / 'w'}\n")
         self.assertEqual(sources.git_branch(str(elsewhere)), "far")
+
+    def test_the_branch_is_of_the_folder_its_log_says_its_working_in(self):
+        # Started above its repositories, as in a folder that holds several: it has moved into one since.
+        top = self.checkout("ref: refs/heads/toasts")
+        above = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, above)
+        line = log_line("assistant", [{"type": "text", "text": "ok"}], cwd=str(top / "app"), gitBranch="HEAD")
+        src = self.at(above, words=line)
+        self.assertEqual(src.desk()["w:p1"]["br"], "toasts")
+        self.assertEqual(src.about("w:p1")["cwd"], str(top / "app"))
+        self.assertNotIn("branch", src.about("w:p1"))  # the log's own, which is of where it was started, names none
+
+    def test_started_outside_a_checkout_it_has_no_branch(self):
+        above = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, above)
+        line = log_line("assistant", [{"type": "text", "text": "ok"}], cwd=str(above), gitBranch="HEAD")
+        self.assertNotIn("br", self.at(above, words=line).desk()["w:p1"])
+
+    def test_without_a_log_its_folder_is_where_it_was_started(self):
+        src = self.at(self.checkout("ref: refs/heads/main"))
+        self.assertEqual(src.about("w:p1")["cwd"], src.agents["w:p1"]["cwd"])
 
     def test_a_reftable_repo_has_its_branch_from_the_log(self):
         line = log_line("assistant", [{"type": "text", "text": "ok"}], gitBranch="kept-in-reftable")

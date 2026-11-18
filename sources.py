@@ -509,16 +509,18 @@ class HerdrSource:
 
     def _branch(self, pane: str, a: dict) -> str | None:
         """The branch it works on, for its card. Its folder's, read here when the folder is on this Mac and may be
-        read without asking (may_look_in): that's so now, whatever agent it is. Otherwise, as for another
-        machine's, whose folder isn't here, the branch its own log last named: Claude names it with everything
-        it writes."""
-        cwd = a.get("foreground_cwd") or a.get("cwd") or ""
+        read without asking (may_look_in): that's so now, whatever agent it is. Its folder is where its log says
+        it is now, since an agent started above its repositories moves into the one it works in: only where the
+        log names none is it where it was started. Otherwise, as for another machine's, whose folder isn't
+        here, the branch its own log last named: Claude names it with everything it writes."""
+        said = getattr(self.activity, "about", None)
+        known = said(pane) if said else {}
+        cwd = known.get("cwd") or a.get("foreground_cwd") or a.get("cwd") or ""
         if cwd and not getattr(self, "host", None) and may_look_in(cwd):
             found = git_branch(cwd)
             if found:
                 return found
-        said = getattr(self.activity, "about", None)
-        return clean_branch(said(pane).get("branch")) if said else None
+        return clean_branch(known.get("branch"))
 
     def _running(self, pane: str, a: dict) -> harness.Running:
         session = (a.get("agent_session") or {}).get("value", "")
@@ -556,13 +558,15 @@ class HerdrSource:
         return items
 
     def about(self, pane: str) -> dict:
-        """For the app's page of one agent: what's known of it beside its state. What isn't known is left out."""
+        """For the app's page of one agent: what's known of it beside its state. What isn't known is left out.
+        Its folder is the one it's working in now, as its log says: where the log names none, the one it was
+        started in."""
         a = self.agents.get(pane)
         if a is None:
             return {}
         said = getattr(self.activity, "about", None)
         out = dict(said(pane)) if said else {}
-        if a.get("cwd"):
+        if not out.get("cwd") and a.get("cwd"):
             out["cwd"] = str(a["cwd"])[:300]
         started = self._running(pane, a).started
         if started:
