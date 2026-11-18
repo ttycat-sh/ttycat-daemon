@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -15,6 +16,7 @@ import approvals  # noqa: E402
 import claude_sessions as cs  # noqa: E402
 from petstate import Pet  # noqa: E402
 from sources import Fleet, HerdrSource  # noqa: E402
+from patience import PATIENCE  # noqa: E402
 
 SID = "5d6d8b61-343d-4d8b-b463-a82fe6f71940"
 PANE = "s:5d6d8b61"
@@ -197,11 +199,10 @@ class Scopes(unittest.TestCase):
         self.addCleanup(client.close)
         request = {"tool_name": "Bash", "tool_input": {"command": "touch a"}}
         client.sendall(json.dumps({"pane": pane, "request": request}).encode() + b"\n")
-        for _ in range(4):
+        deadline = time.monotonic() + PATIENCE
+        while pane not in self.hub.pending and time.monotonic() < deadline:
             for sock in select.select(self.hub.fds(), [], [], 1)[0]:
                 self.hub.handle(sock)
-            if pane in self.hub.pending:
-                break
         return client
 
     def test_herdr_knowing_nothing_of_a_session_doesnt_end_its_prompt(self):
@@ -223,7 +224,7 @@ class Scopes(unittest.TestCase):
         self.hub.pending[PANE].at -= 100
         self.sessions.prune({PANE: "working"})
         self.assertNotIn(PANE, self.hub.pending)
-        client.settimeout(1)
+        client.settimeout(PATIENCE)
         self.assertEqual(client.recv(100), b"")  # nothing decided
 
     def test_a_scope_cant_see_or_answer_anothers_prompt(self):
@@ -240,7 +241,7 @@ class Scopes(unittest.TestCase):
             row = source.poll()[0]
         self.assertEqual((row["ask"], row["body"]), ("approve", "touch a"))
         self.assertEqual(source.act("allow", PANE, row["rev"], via="app"), (True, ""))
-        client.settimeout(1)
+        client.settimeout(PATIENCE)
         self.assertEqual(json.loads(client.recv(1000)), {"behavior": "allow"})
 
 
@@ -262,16 +263,16 @@ class HookKeys(unittest.TestCase):
         self.addCleanup(process.kill)
         self.addCleanup(process.stdout.close)
         # It asks, or it ends having asked nothing: its output closes only as it ends, and one that asked waits
-        # for its answer before it writes anything. So nothing is waited out: the 30 s is only how long a hook
-        # that does neither is given.
-        ready, _, _ = select.select([server, process.stdout], [], [], 30)
+        # for its answer before it writes anything. So nothing is waited out: one that does neither is given
+        # up on.
+        ready, _, _ = select.select([server, process.stdout], [], [], PATIENCE)
         if server not in ready:
             self.assertTrue(ready, "the hook neither asked nor ended")
-            self.assertEqual(process.wait(timeout=30), 0)
+            self.assertEqual(process.wait(timeout=PATIENCE), 0)
             return None
         conn, _ = server.accept()
         self.addCleanup(conn.close)
-        conn.settimeout(3)
+        conn.settimeout(PATIENCE)
         return json.loads(conn.recv(65536))["pane"]
 
     def test_outside_herdr_it_names_the_session(self):

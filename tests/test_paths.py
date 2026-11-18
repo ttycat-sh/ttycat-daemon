@@ -17,6 +17,7 @@ HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
 
 import paths  # noqa: E402
+from patience import PATIENCE  # noqa: E402
 
 
 class TheStateFolder(unittest.TestCase):
@@ -68,13 +69,13 @@ class ASecondDaemon(unittest.TestCase):
 
     def daemon(self, *args) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, "ttycatd.py", *args], cwd=HERE, env=self.env,
-                              capture_output=True, text=True, timeout=30)
+                              capture_output=True, text=True, timeout=PATIENCE)
 
     def test_keeps_everything_in_its_folder(self):
         running = subprocess.Popen([sys.executable, "ttycatd.py", "--no-board", "demo"], cwd=HERE, env=self.env,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
-            deadline = time.monotonic() + 15
+            deadline = time.monotonic() + PATIENCE
             while not (self.state / "ctl.sock").exists() and time.monotonic() < deadline and running.poll() is None:
                 time.sleep(0.05)
             self.assertTrue((self.state / "ctl.sock").exists(), "the daemon never listened in its folder")
@@ -84,7 +85,7 @@ class ASecondDaemon(unittest.TestCase):
             self.assertEqual((board["connected"], board["port"], board["silent"]), (False, None, []))
         finally:
             running.send_signal(signal.SIGTERM)
-            running.wait(timeout=10)
+            running.wait(timeout=PATIENCE)
         self.assertTrue((self.state / "daemon.lock").exists())
         self.assertFalse((self.home / ".ttycat").exists())
 
@@ -100,7 +101,7 @@ class ASecondDaemon(unittest.TestCase):
     def test_the_hook_finds_its_socket(self):
         def sock(**env):
             run = subprocess.run([sys.executable, "-c", "import hook; print(hook.SOCK)"], cwd=HERE,
-                                 env={**self.env, **env}, capture_output=True, text=True, timeout=10)
+                                 env={**self.env, **env}, capture_output=True, text=True, timeout=PATIENCE)
             return run.stdout.strip()
         self.assertEqual(sock(), str(self.state / "hook.sock"))
         self.assertEqual(sock(TTYCAT_HOOK_SOCK="/tmp/elsewhere.sock"), "/tmp/elsewhere.sock")

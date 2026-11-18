@@ -2,6 +2,7 @@
 import calendar
 import json
 import os
+import select
 import shlex
 import shutil
 import socket
@@ -22,6 +23,7 @@ import approvals  # noqa: E402
 import ttycatd  # noqa: E402
 import prompts  # noqa: E402
 import sources  # noqa: E402
+from patience import PATIENCE  # noqa: E402
 from petstate import Pet  # noqa: E402
 import petstate  # noqa: E402
 from sources import Fleet  # noqa: E402
@@ -223,7 +225,8 @@ class HubCase(unittest.TestCase):
         return h
 
     def wait_pending(self, pane="w:p1", differs_from=None):
-        for _ in range(300):
+        deadline = time.monotonic() + PATIENCE
+        while time.monotonic() < deadline:
             p = self.hub.get(pane)
             if p and p.id != differs_from:
                 return p
@@ -231,7 +234,7 @@ class HubCase(unittest.TestCase):
         self.fail("the request never arrived")
 
     def finish(self, h):
-        h.wait(timeout=5)
+        h.wait(timeout=PATIENCE)
         out = h.stdout.read()
         self.assertEqual(h.returncode, 0)
         return json.loads(out)["hookSpecificOutput"]["decision"] if out else None
@@ -358,9 +361,8 @@ class HubCase(unittest.TestCase):
         h = self.ask()
         p = self.wait_pending()
         h.kill()
-        for _ in range(300):
-            if not self.hub.get("w:p1"):
-                break
+        deadline = time.monotonic() + PATIENCE
+        while self.hub.get("w:p1") and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertIsNone(self.hub.get("w:p1"))
         self.assertEqual(self.hub.answer("w:p1", p.id, "allow"), (False, "prompt already gone"))
@@ -393,7 +395,7 @@ class HubCase(unittest.TestCase):
     def test_garbage_on_stdin_leaves_no_decision(self):
         e = {**os.environ, "TTYCAT_HOOK_SOCK": str(self.sock), "HERDR_PANE_ID": "w:p1"}
         out = subprocess.run([sys.executable, "-I", str(DAEMON / "hook.py")], input="not json", env=e,
-                             capture_output=True, text=True, timeout=5)
+                             capture_output=True, text=True, timeout=PATIENCE)
         self.assertEqual((out.returncode, out.stdout), (0, ""))
 
 
@@ -947,9 +949,9 @@ class MacApp(unittest.TestCase):
         conn.setblocking(False)
         hub.incoming[conn] = bytearray()
         hook.sendall(json.dumps({"pane": "w:p1", "request": request or {"tool_name": "Bash", "tool_input": {"command": "touch a"}}}).encode() + b"\n")
-        time.sleep(0.02)
+        self.assertTrue(select.select([conn], [], [], PATIENCE)[0], "what the hook sent never arrived")
         hub.handle(conn)
-        hook.settimeout(1)
+        hook.settimeout(PATIENCE)
         return FakeHerdr(hub=hub), hub, hook
 
     def test_allow_from_the_app_reaches_the_hook_that_asked(self):
@@ -986,7 +988,7 @@ class MacApp(unittest.TestCase):
         self.addCleanup(b.close)
         body = json.dumps({"t": "app-act", "ans": ["x" * 9000]}).encode()
         threading.Thread(target=lambda: (a.sendall(body[:100]), time.sleep(0.02), a.sendall(body[100:]))).start()
-        b.settimeout(1)
+        b.settimeout(PATIENCE)
         self.assertEqual(len(ttycatd.read_request(b)["ans"][0]), 9000)
 
     def test_garbage_is_not_a_request(self):

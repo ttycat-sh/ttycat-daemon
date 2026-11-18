@@ -16,6 +16,7 @@ import ttycatd  # noqa: E402
 import ed25519  # noqa: E402
 import flasher  # noqa: E402
 import release  # noqa: E402
+from patience import PATIENCE  # noqa: E402
 
 SECRET = bytes(range(32))  # a test key: ttycat's own images are only written signed
 KEYS = {release.key_id(ed25519.public_key(SECRET)): ed25519.public_key(SECRET)}
@@ -162,7 +163,7 @@ class Flashing(unittest.TestCase):
         self.addCleanup(made.close)
         return made
 
-    def run_to_end(self, f, seconds=10):
+    def run_to_end(self, f, seconds=PATIENCE):
         end = time.monotonic() + seconds
         while f.fd is not None and time.monotonic() < end:
             if select.select([f.fd], [], [], 0.1)[0]:
