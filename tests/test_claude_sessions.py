@@ -1,5 +1,6 @@
 """Claude sessions outside herdr. The registry here is a temp folder; nothing real is read."""
 import json
+import select
 import socket
 import subprocess
 import sys
@@ -253,7 +254,6 @@ class HookKeys(unittest.TestCase):
         server = socket.socket(socket.AF_UNIX)
         server.bind(path)
         server.listen(1)
-        server.settimeout(3)
         self.addCleanup(server.close)
         process = subprocess.Popen([sys.executable, "-I", str(DAEMON / "hook.py")], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, env={"TTYCAT_HOOK_SOCK": path, **env})
@@ -261,10 +261,15 @@ class HookKeys(unittest.TestCase):
         process.stdin.close()
         self.addCleanup(process.kill)
         self.addCleanup(process.stdout.close)
-        try:
-            conn, _ = server.accept()
-        except socket.timeout:
+        # It asks, or it ends having asked nothing: its output closes only as it ends, and one that asked waits
+        # for its answer before it writes anything. So nothing is waited out: the 30 s is only how long a hook
+        # that does neither is given.
+        ready, _, _ = select.select([server, process.stdout], [], [], 30)
+        if server not in ready:
+            self.assertTrue(ready, "the hook neither asked nor ended")
+            self.assertEqual(process.wait(timeout=30), 0)
             return None
+        conn, _ = server.accept()
         self.addCleanup(conn.close)
         conn.settimeout(3)
         return json.loads(conn.recv(65536))["pane"]

@@ -49,7 +49,8 @@ class Server:
                 pass
 
         self.http = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=self.http.serve_forever, daemon=True).start()
+        # It looks for being told to stop every 10 ms, not every half second: shutdown() waits for that look.
+        threading.Thread(target=self.http.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.http.server_port}/v1/model-insights/prices"
 
     def close(self):
