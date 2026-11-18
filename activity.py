@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections
 import json
+import os
 import re
 import shlex
 import time
@@ -23,6 +24,8 @@ KEEP = 30                 # events kept per agent
 READ_BACK = 8_000_000     # how far back to look at first; logs reach hundreds of MB
 LONGEST_PATH = 50         # rows on the board are short
 LONGEST_LINE = 200_000    # longer ones are big file reads and images, with nothing to show
+LONGEST_FOLDER = 300      # a folder's path, as the app is given it
+NO_BRANCH = "HEAD"        # what Claude writes where there's no branch to name: outside a checkout, or on none
 FIRST_READS_PER_SYNC = 3  # a long first read must not hold up the board for all agents at once
 LOOK_AGAIN_S = 5.0        # a new session has no log until its first prompt
 USEFUL = (b'"type":"assistant"', b'"type":"user"')
@@ -163,12 +166,13 @@ class Trail:
         self.model: str | None = None
         self.context: int | None = None   # tokens the last reply was given to read
         self.branch: str | None = None
+        self.cwd: str | None = None       # the folder it's working in: it moves as the agent does
         self.steps: int | None = None     # tools used since your last prompt; None if that prompt is further back than was read
         self.making: set[str] = set()     # tool calls whose output may name a request it made
         self.requests: list[dict] = []    # pull and merge requests it made, oldest first
 
     def about(self) -> dict:
-        known = {"model": self.model, "ctx": self.context, "branch": self.branch, "steps": self.steps}
+        known = {"model": self.model, "ctx": self.context, "branch": self.branch, "steps": self.steps, "cwd": self.cwd}
         return {name: value for name, value in known.items() if value is not None}
 
     def feed(self, data: bytes):
@@ -187,7 +191,10 @@ class Trail:
         at = _when(entry)
         branch = entry.get("gitBranch")
         if isinstance(branch, str) and branch:
-            self.branch = branch[:80]
+            self.branch = None if branch == NO_BRANCH else branch[:80]
+        folder = entry.get("cwd")
+        if isinstance(folder, str) and os.path.isabs(folder) and len(folder) <= LONGEST_FOLDER and folder.isprintable():
+            self.cwd = folder
         if entry.get("type") == "assistant" and isinstance(content, list):
             self._reply(entry.get("message") or {})
             for block in content:
