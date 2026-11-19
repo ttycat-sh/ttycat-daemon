@@ -1262,6 +1262,31 @@ class Desk(unittest.TestCase):
         src = self.at(self.checkout("ref: refs/heads/main"))
         self.assertEqual(src.about("w:p1")["cwd"], src.agents["w:p1"]["cwd"])
 
+    def test_the_app_is_told_the_folder_its_listed_in(self):
+        src = self.source()
+        src.row()
+        self.assertEqual(src.desk()["w:p1"]["from"], src.agents["w:p1"]["cwd"])
+        self.assertNotIn("from", src.poll()[0])  # the board's rows stay as they were
+
+    def test_its_not_where_its_log_says_it_works(self):
+        # Started above its repositories, it has moved into one since: about() follows it, and this doesn't.
+        top = self.checkout("ref: refs/heads/toasts")
+        line = log_line("assistant", [{"type": "text", "text": "ok"}], cwd=str(top / "app"), gitBranch="HEAD")
+        src = self.at(top / "app" / "src", words=line)
+        listed = src.agents["w:p1"]["cwd"]
+        self.assertNotIn(listed, (str(top / "app"), str(top / "app" / "src")))
+        self.assertEqual(src.desk()["w:p1"]["from"], listed)
+        self.assertEqual(src.about("w:p1")["cwd"], str(top / "app"))
+
+    def test_a_folder_that_cant_be_one_is_left_out(self):
+        for folder in ("", None, "relative/app", "/tab\tbed", "/" + "x" * activity.LONGEST_FOLDER):
+            src = self.source()
+            src.row()
+            src.agents["w:p1"]["cwd"] = folder
+            self.assertNotIn("from", src.desk().get("w:p1", {}), folder)
+        src.agents["w:p1"]["cwd"] = "/" + "x" * (activity.LONGEST_FOLDER - 1)
+        self.assertEqual(len(src.desk()["w:p1"]["from"]), activity.LONGEST_FOLDER)  # whole, or not at all
+
     def test_a_reftable_repo_has_its_branch_from_the_log(self):
         line = log_line("assistant", [{"type": "text", "text": "ok"}], gitBranch="kept-in-reftable")
         src = self.at(self.checkout("ref: refs/heads/.invalid"), words=line)

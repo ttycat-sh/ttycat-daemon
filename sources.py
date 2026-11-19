@@ -17,7 +17,7 @@ import children
 import harness
 import prompts
 from discovery import is_ours
-from activity import Activity, LocalLogs
+from activity import Activity, LocalLogs, LONGEST_FOLDER
 from agent_names import AgentNames, clean_name, for_board
 from approvals import fit
 from petstate import Pet
@@ -477,7 +477,7 @@ class HerdrSource:
 
     def desk(self) -> dict[str, dict]:
         """For the app, not the board: the pane you're on, how each finished turn ended, in full
-        characters, and the session each agent is in, as the agent itself names it."""
+        characters, the session each agent is in, as the agent itself names it, and the folder it's listed in."""
         out = {}
         for pane, a in self.agents.items():
             extra = {}
@@ -503,6 +503,11 @@ class HerdrSource:
             branch = self._branch(pane, a)
             if branch:
                 extra["br"] = branch
+            # The folder it's listed in, in full: where whatever found it says it is, which for an agent is as a
+            # rule where it was started. Where it works now is about()'s. Whole, or not at all.
+            folder = a.get("cwd")
+            if isinstance(folder, str) and os.path.isabs(folder) and len(folder) <= LONGEST_FOLDER and folder.isprintable():
+                extra["from"] = folder
             if extra:
                 out[pane] = extra
         return out

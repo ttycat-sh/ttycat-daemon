@@ -175,8 +175,8 @@ class InTheStatus(unittest.TestCase):
         rows = source.poll()
         self.assertNotIn("sub", rows[0])  # the board's rows stay as they were
         desk = source.desk()
-        self.assertEqual(desk["p1"], {"sub": 1, "sh": 1, "guess": ["sh"], "ses": SESSION})
-        self.assertNotIn("p2", desk)  # no session it names, and nothing counted: nothing to add
+        self.assertEqual(desk["p1"], {"sub": 1, "sh": 1, "guess": ["sh"], "ses": SESSION, "from": "/work/shop"})
+        self.assertEqual(desk["p2"], {"from": "/work/shop"})  # no session it names, and nothing counted: its folder alone
 
 
 if __name__ == "__main__":

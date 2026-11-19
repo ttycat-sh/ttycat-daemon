@@ -159,6 +159,12 @@ class Named(unittest.TestCase):
         f = fleet(agent("w1:p1"))
         f.rename("w1:p1", "the login fix")
         self.assertEqual(set(f.poll()[0]), {"id", "a", "n", "p", "age", "s", "d"})
+        self.assertEqual(rows(f)["w1:p1"]["from"], "/work/shop")  # the app is: its folder, in full
+
+    def test_another_machines_folder_is_that_machines(self):
+        f = Fleet(Source([agent("w1:p1")]), [Remote([agent("w1:p1", cwd="/home/dev/shop")])], start=False)
+        f.poll()
+        self.assertEqual({sid: row["from"] for sid, row in rows(f).items()}, {"w1:p1": "/work/shop", "1/w1:p1": "/home/dev/shop"})
 
     def test_two_in_one_folder_can_be_told_apart(self):
         f = fleet(agent("w1:p1"), agent("w1:p2"))
