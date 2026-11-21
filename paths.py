@@ -3,6 +3,7 @@
 TTYCAT_HOME moves the state folder: sockets, the lock, the pet, settings, downloads. Two daemons with two folders
 don't meet, so a second one can run beside the one in use, for trying a change. TTYCAT_CLAUDE_SETTINGS points
 `hook install|remove|repair` at another file, so that daemon can't change the hook Claude really runs.
+TTYCAT_SESSIONS_DIR moves the folder hosted sessions are looked for in: see places.py.
 """
 from __future__ import annotations
 
@@ -16,6 +17,14 @@ def state_dir(home: str | Path | None = None) -> Path:
     if chosen and os.path.isabs(chosen):
         return Path(chosen)
     return Path(home if home is not None else Path.home()) / ".ttycat"
+
+
+def sessions_dir() -> Path:
+    """TTYCAT_SESSIONS_DIR when it names a folder by its whole path, else `sessions` in the state folder."""
+    chosen = os.environ.get("TTYCAT_SESSIONS_DIR", "")
+    if chosen and os.path.isabs(chosen):
+        return Path(chosen)
+    return state_dir() / "sessions"
 
 
 def claude_settings() -> Path:
