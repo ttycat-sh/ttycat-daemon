@@ -1,0 +1,82 @@
+{
+  "about": "Frames between a session's host and what reads it, as bytes in hex beside what they say. Both ends are tested on this file: what one writes, the other must read as this says.",
+  "v": 2,
+  "record": {
+    "v": 2,
+    "id": "0f3a9c1e",
+    "kind": "codex",
+    "host": 4242,
+    "child": 4243,
+    "tty": "/dev/ttys012",
+    "cwd": "/work/shop",
+    "argv": [
+      "/bin/zsh",
+      "-l",
+      "-i",
+      "-c",
+      "exec codex"
+    ],
+    "started": 1795000000.5
+  },
+  "to_host": {
+    "hello_as_reader": {
+      "kind": "h",
+      "says": {
+        "v": 2,
+        "role": "read"
+      },
+      "hex": "68000000187b2276223a20322c2022726f6c65223a202272656164227d"
+    },
+    "what_does_it_show": {
+      "kind": "q",
+      "says": null,
+      "hex": "7100000000"
+    }
+  },
+  "from_host": {
+    "hello_back": {
+      "kind": "h",
+      "says": {
+        "v": 2,
+        "cols": 100,
+        "rows": 30,
+        "child": 4243,
+        "alive": true,
+        "kind": "codex",
+        "seq": 18230,
+        "tty": "/dev/ttys012"
+      },
+      "hex": "68000000667b2276223a322c22636f6c73223a3130302c22726f7773223a33302c226368696c64223a343234332c22616c697665223a747275652c226b696e64223a22636f646578222c22736571223a31383233302c22747479223a222f6465762f74747973303132227d"
+    },
+    "it_shows": {
+      "kind": "Q",
+      "says": {
+        "cols": 100,
+        "rows": 30,
+        "title": "⠋ Thinking",
+        "text": "› run the tests\n\n• Working (12s · esc to interrupt)\n",
+        "progress": "4;3;",
+        "said": {
+          "state": "working",
+          "app": "codex",
+          "message": "Running the tests"
+        },
+        "alive": true
+      },
+      "hex": "51000000d97b22636f6c73223a3130302c22726f7773223a33302c227469746c65223a22e2a08b205468696e6b696e67222c2274657874223a22e280ba2072756e207468652074657374735c6e5c6ee280a220576f726b696e67202831327320c2b72065736320746f20696e74657272757074295c6e222c2270726f6772657373223a22343b333b222c2273616964223a7b227374617465223a22776f726b696e67222c22617070223a22636f646578222c226d657373616765223a2252756e6e696e6720746865207465737473227d2c22616c697665223a747275657d"
+    },
+    "it_shows_and_says_nothing_of_itself": {
+      "kind": "Q",
+      "says": {
+        "cols": 100,
+        "rows": 30,
+        "title": "",
+        "text": "$ \n",
+        "progress": "",
+        "said": null,
+        "alive": true
+      },
+      "hex": "51000000567b22636f6c73223a3130302c22726f7773223a33302c227469746c65223a22222c2274657874223a2224205c6e222c2270726f6772657373223a22222c2273616964223a6e756c6c2c22616c697665223a747275657d"
+    }
+  }
+}

@@ -48,6 +48,7 @@ A hook run with `TTYCAT_HOME` set, or `TTYCAT_HOOK_SOCK`, asks that daemon. Ever
 | **In herdr** | All the agents it supports | Read from each agent's screen by herdr | Claude Code, through the hook |
 | **Claude Code in any other terminal** | Claude Code | Claude's own record in `~/.claude/sessions/<pid>.json` | Through the same hook |
 | **Any other agent in tmux** | Those herdr has rules for: Codex, OpenCode, Pi, Gemini and others | Read from its screen, by herdr's rules | No: its prompt is shown, and answered in its terminal |
+| **Any other agent in a hosted session** | Any that says what it's doing itself (OSC 7501), and those herdr has rules for | What it says of itself, else read from its screen, by herdr's rules | No: its prompt is shown, and answered in its terminal |
 | **The Codex app** | Its threads, active in the last 30 minutes | Codex's own records in `~/.codex` | No |
 | **Codex in any other terminal** | Codex | The same records, if it's the only Codex in its folder | No |
 | **Any other agent in any other terminal** | OpenCode, Gemini and others, by process name | None: it shows as running, "state unknown" | No |
@@ -56,6 +57,8 @@ herdr isn't required, on this Mac or on other machines. A session outside it jus
 
 **What a screen means** comes from [herdr](https://github.com/herdrdev/herdr)'s detection rules (`agent_rules.json`, Apache-2.0, `agent_rules.LICENSE`) and a port of its engine (`screen_rules.py`), checked rule by rule against herdr's own `agent explain`. Update them with `tools/import_agent_rules.py HERDR_REPO`. Unlike herdr, they don't update themselves, so a new version of an agent can show the wrong state until they're refreshed. Unknown screens read as idle, as in herdr, so an unusual prompt can look idle. No keys are ever sent to these agents.
 
+- **A hosted session** is a terminal held by a process of its own, its host, which says what the terminal shows to whoever asks at its socket: `places.py` says how one is found and spoken to. The daemon only reads there: it asks what's on screen, and can't type, resize or end anything. It looks in `sessions` in its own folder (`TTYCAT_SESSIONS_DIR` moves it), and only at hosts that are still running.
+- **What an agent says of itself comes before what its screen looks like.** A host hears what a program reports of its own state (OSC 7501: idle, working, done, blocked, error), and that's taken as it is, with an error shown as done. An agent that reports nothing is read off its screen, as in tmux. Claude Code's state still comes from its own record, wherever it runs.
 - **Which process is the agent** is worked out as herdr does: the terminal's foreground job, its leader first, by name, seeing through runtimes such as `node`, and never from an argument that only mentions one. Background services don't count.
 - **An agent showing "state unknown" may be waiting on you.** Nothing can read another terminal's screen, so this can't tell. For its real state and prompts, run it in tmux or herdr.
 - **Codex's log can't tell waiting for approval from a long command.** A thread that's able to ask says "may be waiting for approval" after 20 quiet seconds with a tool call open. In tmux, its screen tells them apart.

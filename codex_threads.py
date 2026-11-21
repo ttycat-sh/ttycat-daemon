@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from activity import Event, _one_line, _when, prompt_summary, said_summary
-from sources import HerdrSource
+from sources import AgentSource
 
 CODEX_HOME = Path.home() / ".codex"
 PREFIX = "c:"
@@ -255,12 +255,12 @@ class Logs:
         return "done" if pane in ran else "idle"
 
 
-class CodexThreads(HerdrSource):
+class CodexThreads(AgentSource):
     """The Codex app's threads, as rows like any other. Nothing here writes to Codex, and nothing it
     asks can be answered from here yet."""
 
-    def __init__(self, focus_app="Ghostty", pet=None, home: Path = CODEX_HOME, read=read_threads, clock=time.time, run=subprocess.run):
-        super().__init__(focus_app=focus_app, hub=None, pet=pet)
+    def __init__(self, pet=None, home: Path = CODEX_HOME, read=read_threads, clock=time.time, run=subprocess.run):
+        super().__init__(hub=None, pet=pet)
         self.home, self.read, self.clock, self.run = home, read, clock, run
         self.activity = Logs(clock)
         self.threads: dict[str, dict] = {}
@@ -268,11 +268,9 @@ class CodexThreads(HerdrSource):
         self.scanned_at = 0.0
 
     def _follow(self, agents: list[dict], now: float):
-        pass  # read already, in _herdr: the state comes from the same log
+        pass  # read already, in _listed: the state comes from the same log
 
-    def _herdr(self, *args) -> dict | None:
-        if args[:2] != ("agent", "list"):
-            return None
+    def _listed(self) -> list[dict]:
         now = self.clock()
         if now - self.scanned_at >= SCAN_EVERY_S:
             self.scanned_at = now
@@ -288,7 +286,7 @@ class CodexThreads(HerdrSource):
             agents.append({"pane_id": pane, "agent": "codex", "agent_status": self.activity.status(pane, can_ask, self.ran),
                            "cwd": str(thread.get("cwd") or ""), "terminal_title_stripped": str(thread.get("title") or "")})
         self.ran &= set(self.threads)
-        return {"result": {"agents": agents}}
+        return agents
 
     def _running(self, pane: str, a: dict):
         known = super()._running(pane, a)

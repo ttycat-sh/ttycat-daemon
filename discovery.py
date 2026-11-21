@@ -218,10 +218,10 @@ class ScreenStates:
         self.ran: set[str] = set()     # seen at work: it can be "done", not just idle
         self.held: set[str] = set()
 
-    def update(self, pane: str, agent: str, screen: str, title: str = "") -> str:
+    def update(self, pane: str, agent: str, screen: str, title: str = "", progress: str = "") -> str:
         if not self.rules.knows(agent):
             return "unknown"
-        seen = self.rules.detect(agent, screen, title)
+        seen = self.rules.detect(agent, screen, title, progress)
         before = self.last.get(pane)
         if seen.skip_state_update:  # a viewer over the agent, say: this says nothing about the agent
             return before or "idle"

@@ -20,17 +20,18 @@ import time
 from pathlib import Path
 
 import prompts
-from discovery import (SESSION_PREFIX, Found, ScreenStates, SessionStates, foreground_agents, parse_ps, place_in_tmux,
-                       process_agent, process_pane, session_entry, session_pane, tmux_panes, tmux_place, tmux_socket_of)
+from discovery import (SESSION_PREFIX, Found, ScreenStates, SessionStates, foreground_agents, parse_ps, process_agent,
+                       process_pane, session_entry, session_pane, tmux_socket_of)
 from codex_threads import CLI_SOURCE, CODEX_HOME, RECENT_S, Logs, read_threads
+from places import SAID_AS, Place, TmuxPlace, capture_pane, list_tmux_panes
 from screen_rules import shared_rules
-from sources import APP_IN_PATH, HerdrSource, app_among_parents  # noqa: F401
+from sources import APP_IN_PATH, AgentSource, app_among_parents  # noqa: F401
 
 REGISTRY = Path.home() / ".claude" / "sessions"
 # TERM_PROGRAM, for when no app can be found among a session's parents (under tmux, say).
 TERMINALS = {"ghostty": "Ghostty", "Apple_Terminal": "Terminal", "iTerm.app": "iTerm", "vscode": "Visual Studio Code",
              "WezTerm": "WezTerm", "kitty": "kitty", "alacritty": "Alacritty", "Hyper": "Hyper", "WarpTerminal": "Warp"}
-ENV_WANTED = ("HERDR_PANE_ID", "TERM_PROGRAM", "TMUX", "TMUX_PANE")
+ENV_WANTED = ("HERDR_PANE_ID", "TERM_PROGRAM", "TMUX", "TMUX_PANE", "TTYCAT_SESSION")
 
 
 pane_of = session_pane  # hook.py names a session the same way
@@ -121,13 +122,15 @@ def process_cwd(pid: int) -> str:
     return next((line[1:] for line in out.stdout.splitlines() if line.startswith("n")), "")
 
 
-class _InATerminal(HerdrSource):
+class _InATerminal(AgentSource):
     """What's the same for anything found in a terminal that isn't ours."""
 
-    def __init__(self, focus_app="Ghostty", hub=None, pet=None, env_of=process_env, app_of=app_among_parents,
-                 run=subprocess.run, parent_check=under_herdr):
-        super().__init__(focus_app=focus_app, hub=hub, pet=pet)
+    def __init__(self, hub=None, pet=None, env_of=process_env, app_of=app_among_parents, run=subprocess.run,
+                 parent_check=under_herdr, hosted=None):
+        super().__init__(hub=hub, pet=pet)
         self.env_of, self.app_of, self.run, self.parent_check = env_of, app_of, run, parent_check
+        self.tmux = TmuxPlace(run=run)
+        self.hosted = hosted   # the sessions held by hosts of their own, if those are looked for: places.HostedPlace
         self.envs: dict[int, dict[str, str]] = {}
         self.parents: dict[int, bool] = {}
         self.pids: dict[str, int] = {}
@@ -156,14 +159,30 @@ class _InATerminal(HerdrSource):
             known.pid = self.pids.get(pane)
         return known
 
+    def _hosted_session(self, pid: int) -> str:
+        """The hosted session it's in, by what its host told it: only one this daemon's folder has."""
+        name = self._env(pid).get("TTYCAT_SESSION", "") if self.hosted else ""
+        return name if name and self.hosted.knows(name) else ""
+
+    def desk(self) -> dict[str, dict]:
+        """And the hosted session each is in, where it's in one: whatever shows that session knows its row by it."""
+        out = super().desk()
+        for pane, pid in self.pids.items():
+            name = self._hosted_session(pid)
+            if name:
+                out.setdefault(pane, {})["hs"] = name
+        return out
+
     def _forget_others(self, running: set[int]):
         self.envs = {pid: env for pid, env in self.envs.items() if pid in running}
         self.parents = {pid: seen for pid, seen in self.parents.items() if pid in running}
 
-    def _tmux_of(self, pid: int) -> tuple[str, str]:
-        """(socket, pane), blank if not in tmux or not known."""
+    def _held(self, pid: int) -> tuple[Place, object] | None:
+        """The place its terminal is in, and what it's known by there. Here, by what tmux told the process
+        itself. None: nowhere that's known."""
         env = self._env(pid)
-        return tmux_socket_of(env.get("TMUX", "")), env.get("TMUX_PANE", "")
+        pane = env.get("TMUX_PANE", "")
+        return (self.tmux, (tmux_socket_of(env.get("TMUX", "")), pane)) if pane else None
 
     def _open(self, pane: str) -> tuple[bool, str]:
         pid = self.pids.get(pane)
@@ -171,11 +190,10 @@ class _InATerminal(HerdrSource):
             return False, "that session has ended"
         env = self._env(pid)
         try:
-            socket, tmux = self._tmux_of(pid)
-            if tmux:
-                base = ["tmux", "-S", socket] if socket else ["tmux"]
-                self.run([*base, "select-window", "-t", tmux], capture_output=True, timeout=3)
-                self.run([*base, "select-pane", "-t", tmux], capture_output=True, timeout=3)
+            held = self._held(pid)
+            if held:
+                place, terminal = held
+                place.bring_forward(terminal)
             app = self.app_of(pid) or TERMINALS.get(env.get("TERM_PROGRAM", ""))
             if not app:
                 return False, "couldn't tell which terminal it's in"
@@ -189,16 +207,14 @@ class ClaudeSessions(_InATerminal):
     """Presents the registry as herdr's agent list would, so everything built on that list works
     as it does for herdr: rows, what it's doing, the pet, notifications and answers."""
 
-    def __init__(self, focus_app="Ghostty", hub=None, pet=None, folder: Path = REGISTRY, read=read_registry, **kw):
-        super().__init__(focus_app=focus_app, hub=hub, pet=pet, **kw)
+    def __init__(self, hub=None, pet=None, folder: Path = REGISTRY, read=read_registry, **kw):
+        super().__init__(hub=hub, pet=pet, **kw)
         self.folder, self.read = folder, read
         self.claude = SessionStates()
         self.herdr_sessions: set[str] = set()
         self.all_pids: set[int] = set()  # every Claude running, whoever shows it: none is a plain process
 
-    def _herdr(self, *args) -> dict | None:
-        if args[:2] != ("agent", "list"):
-            return None
+    def _listed(self) -> list[dict]:
         everything = self.read(self.folder)
         self.all_pids = {e["pid"] for e in everything}
         self.procs = {e["sessionId"]: (e["pid"], started_ms / 1000 if isinstance(started_ms := e.get("startedAt"), (int, float)) else 0.0)
@@ -206,42 +222,11 @@ class ClaudeSessions(_InATerminal):
         self._forget_others(self.all_pids)
         mine = [e for e in everything if e["sessionId"] not in self.herdr_sessions and not self._in_herdr_pane(e["pid"])]
         self.pids = {session_pane(e["sessionId"]): e["pid"] for e in mine}
-        return {"result": {"agents": self.claude.agents(mine)}}
+        return self.claude.agents(mine)
 
     def _read_prompt(self, pane: str, agent: str) -> tuple[str, prompts.Ask]:
         text, body = self.claude.asking(pane)
         return text, prompts.Ask(body=body, detail=(text or "waiting")[:70])
-
-
-def list_tmux_panes() -> str:
-    """Every tmux server of yours, as lines discovery.tmux_panes reads."""
-    folder = Path(os.environ.get("TMUX_TMPDIR") or "/tmp") / f"tmux-{os.getuid()}"
-    out = []
-    try:
-        sockets = list(folder.iterdir())
-    except OSError:
-        return ""
-    for socket in sockets:
-        try:
-            done = subprocess.run(["tmux", "-S", str(socket), "list-panes", "-a", "-F", f"@@tmux {socket} #{{pane_tty}} #{{pane_id}}"],
-                                  capture_output=True, text=True, timeout=2)
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if done.returncode == 0:
-            out.append(done.stdout)
-    return "".join(out)
-
-
-def capture_pane(socket: str, pane: str) -> tuple[str, str] | None:
-    """(title, what's on screen), from tmux."""
-    try:
-        title = subprocess.run(["tmux", "-S", socket, "display-message", "-p", "-t", pane, "#{pane_title}"],
-                               capture_output=True, text=True, timeout=2)
-        screen = subprocess.run(["tmux", "-S", socket, "capture-pane", "-p", "-t", pane],
-                                capture_output=True, text=True, timeout=2)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return (title.stdout.strip(), screen.stdout) if screen.returncode == 0 else None
 
 
 def started_at(pid: int) -> float | None:
@@ -258,17 +243,23 @@ def started_at(pid: int) -> float | None:
 
 
 class RunningAgents(_InATerminal):
-    """Any other agent running in a terminal. In tmux, its screen says what it's doing, by herdr's
-    rules. Codex keeps a log, which says most of that anywhere. Otherwise it's known to be there and
-    no more, and says so. Nothing it asks can be answered from here: no keys are ever sent."""
+    """Any other agent running in a terminal. Where its terminal is in a place that shows its screen, as tmux
+    and a hosted session do, the screen says what it's doing, by herdr's rules: see places.py. Where the place
+    hears what the agent says of itself, that comes first. Codex keeps a log, which says most of that anywhere.
+    Otherwise it's known to be there and no more, and says so. Nothing it asks can be answered from here: no
+    keys are ever sent."""
 
-    def __init__(self, focus_app="Ghostty", pet=None, scan=scan_processes, cwd_of=process_cwd, clock=time.monotonic,
-                 capture=capture_pane, rules=None, panes=list_tmux_panes, codex_home=CODEX_HOME, codex_threads=read_threads,
-                 begun=started_at, **kw):
-        super().__init__(focus_app=focus_app, hub=None, pet=pet, **kw)
-        self.scan, self.cwd_of, self.clock, self.capture = scan, cwd_of, clock, capture
+    def __init__(self, pet=None, scan=scan_processes, cwd_of=process_cwd, clock=time.monotonic, capture=capture_pane,
+                 rules=None, panes=list_tmux_panes, codex_home=CODEX_HOME, codex_threads=read_threads, begun=started_at,
+                 places=None, **kw):
+        super().__init__(hub=None, pet=pet, **kw)
+        self.scan, self.cwd_of, self.clock = scan, cwd_of, clock
         self.screen_states = ScreenStates(rules or shared_rules())
-        self.list_panes = panes
+        if places is None:  # tmux, asked as `panes` and `capture` ask it, and the hosted sessions if there are any
+            self.tmux = TmuxPlace(panes, capture, self.run)
+            places = [self.tmux] + ([self.hosted] if self.hosted else [])
+        self.places: list[Place] = list(places)
+        self.held: dict[int, tuple[Place, object]] = {}   # process -> the place its terminal is in, and what by
         self.codex_home, self.codex_threads, self.begun = codex_home, codex_threads, begun
         self.activity = Logs()     # Codex's: nothing else found here has a log to read
         self.codex_list: list[dict] = []
@@ -282,13 +273,14 @@ class RunningAgents(_InATerminal):
         self.found: list[Found] = []
         self.scanned_at = -SCAN_EVERY_S
 
-    def _herdr(self, *args) -> dict | None:
-        if args[:2] != ("agent", "list"):
-            return None
+    def _listed(self) -> list[dict]:
         if self.clock() - self.scanned_at >= SCAN_EVERY_S:  # a look at every process: not twice a second
             self.scanned_at = self.clock()
             self.found = foreground_agents(self.scan())
-            place_in_tmux(self.found, tmux_panes(self.list_panes()) if self.found else {})
+            self.held = {}
+            for place in self.places:  # the first that has it: a terminal is in one place
+                for pid, terminal in place.find(self.found).items():
+                    self.held.setdefault(pid, (place, terminal))
             running = {f.pid for f in self.found}
             self.started = {pid: when for pid, when in self.started.items() if pid in running}
             self.codex_list = (self.codex_threads(self.codex_home, (CLI_SOURCE,), time.time() - RECENT_S * 48)
@@ -305,20 +297,33 @@ class RunningAgents(_InATerminal):
         self.pids = {process_pane(f.pid): f.pid for f in mine}
         self.screen_states.forget_others(set(self.pids))
         self.screens = {pane: text for pane, text in self.screens.items() if pane in self.pids}
-        return {"result": {"agents": [process_agent(f) for f in mine]}}
+        return [process_agent(f) for f in mine]
 
     def _read_screen(self, f: Found):
         """Every look, not just every scan: this is where it changes."""
         pane = process_pane(f.pid)
         self.screens.pop(pane, None)
         f.status, f.title, f.screen = "unknown", "", None
-        if not tmux_place(f) or not self.screen_states.rules.knows(f.agent):
+        held = self.held.get(f.pid)
+        if not held:
             return
-        got = self.capture(f.tmux_socket, f.tmux_pane)
-        if got:
-            f.title, f.screen = got
-            f.status = self.screen_states.update(pane, f.agent, f.screen, f.title)
-            self.screens[pane] = f.screen
+        place, terminal = held
+        reads = self.screen_states.rules.knows(f.agent)
+        if not reads and not place.hears_programs:
+            return   # nothing would come of asking
+        shown = place.shown(terminal)
+        if not shown:
+            return
+        # What it says of itself comes before what its screen looks like: it knows, where the rules infer.
+        said = SAID_AS.get((shown.said or {}).get("state"))
+        if said:
+            f.status = said
+        elif reads:
+            f.status = self.screen_states.update(pane, f.agent, shown.text, shown.title, shown.progress)
+        else:
+            return
+        f.title, f.screen = shown.title, shown.text
+        self.screens[pane] = f.screen
 
     def _follow(self, agents: list[dict], now: float):
         pass  # no Claude here, and Codex's logs are read with the state they give
@@ -355,9 +360,12 @@ class RunningAgents(_InATerminal):
         known.session = known.session or self.codex_ids.get(pane, "")
         return known
 
-    def _tmux_of(self, pid: int) -> tuple[str, str]:
-        found = next((f for f in self.found if f.pid == pid), None)
-        return (found.tmux_socket, found.tmux_pane) if found and found.tmux_pane else super()._tmux_of(pid)
+    def _held(self, pid: int) -> tuple[Place, object] | None:
+        return self.held.get(pid) or super()._held(pid)
+
+    def _hosted_session(self, pid: int) -> str:
+        place, terminal = self.held.get(pid) or (None, None)   # by its terminal first: it may hide what it was told
+        return str(terminal) if place is not None and place is self.hosted else super()._hosted_session(pid)
 
     def _read_prompt(self, pane: str, agent: str) -> tuple[str, prompts.Ask]:
         text = self.screens.get(pane, "")
