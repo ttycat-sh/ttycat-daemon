@@ -83,8 +83,9 @@ class InTmux(unittest.TestCase):
 class Somewhere(places.Place):
     """A place that isn't tmux: it knows a terminal by a name."""
 
-    def __init__(self, holds, shown=None):
+    def __init__(self, holds, shown=None, hears_programs=False):
         self.holds, self.showing, self.asked, self.brought = holds, shown, [], []
+        self.hears_programs = hears_programs
 
     def find(self, found):
         return {f.pid: self.holds[f.tty] for f in found if f.tty in self.holds}
@@ -98,15 +99,15 @@ class Somewhere(places.Place):
 
 
 class AnAgentInAPlace(unittest.TestCase):
-    def source(self, *where, env=None, app="/Applications/iTerm.app"):
+    def source(self, *where, env=None, app="/Applications/iTerm.app", agent="codex", **kw):
         self.calls = []
 
-        def run(command, **kw):
+        def run(command, **more):
             self.calls.append(command)
             return mock.Mock(returncode=0)
-        return cs.RunningAgents(pet=Pet(None), scan=lambda: [(7, 7, 7, "t", "codex")], env_of=lambda p: env or {},
+        return cs.RunningAgents(pet=Pet(None), scan=lambda: [(7, 7, 7, "t", agent)], env_of=lambda p: env or {},
                                 cwd_of=lambda p: "/w/api", rules=RULES, places=where, parent_check=lambda pid: False,
-                                app_of=lambda p: app, run=run)
+                                app_of=lambda p: app, run=run, **kw)
 
     def poll(self, source):
         source.last_poll = 0
@@ -140,6 +141,48 @@ class AnAgentInAPlace(unittest.TestCase):
         self.poll(source)
         source.act("open", "p:7", "")
         self.assertEqual(self.calls[0], ["tmux", "-S", "/tmp/tmux-1/work", "select-window", "-t", "%3"])
+
+
+class WhatItSaysOfItself(AnAgentInAPlace):
+    def said(self, state, screen="x\n", title="", **kw):
+        place = Somewhere({"t": "one"}, places.Shown(title, screen, said=state and {"state": state}), hears_programs=True)
+        return place, self.poll(self.source(place, **kw))
+
+    def test_its_own_word_is_its_state(self):
+        for state, shown in (("working", "working"), ("blocked", "blocked"), ("done", "done"), ("idle", "idle")):
+            self.assertEqual(self.said(state)[1]["s"], shown, state)
+
+    def test_its_word_comes_before_what_its_screen_looks_like(self):
+        self.assertEqual(self.said("idle", title="⠋ Thinking")[1]["s"], "idle")
+        self.assertEqual(self.said(None, title="⠋ Thinking")[1]["s"], "working")
+
+    def test_an_error_ends_its_turn_as_finishing_does(self):
+        self.assertEqual(self.said("error")[1]["s"], "done")
+
+    def test_it_counts_for_an_agent_no_rule_knows(self):
+        self.assertFalse(RULES.knows("aider"))
+        self.assertEqual(self.said("working", agent="aider")[1]["s"], "working")
+
+    def test_one_no_rule_knows_that_says_nothing_is_running_and_no_more(self):
+        _, row = self.said(None, agent="aider")
+        self.assertEqual((row["s"], row["d"]), ("idle", "state unknown"))
+
+    def test_a_place_that_hears_no_programs_isnt_asked_about_one_no_rule_knows(self):
+        place = Somewhere({"t": "one"}, places.Shown("", "x\n"))
+        self.poll(self.source(place, agent="aider"))
+        self.assertEqual(place.asked, [])
+
+    def test_a_prompt_it_says_it_has_is_read_off_its_screen(self):
+        asking = "\n".join(["• Running a thing", "", "  $ touch a", "", "Would you like to run the following command?"])
+        _, row = self.said("blocked", screen=asking)
+        self.assertEqual((row["s"], row["ask"], row["tool"]), ("blocked", "terminal", "SHELL"))
+        self.assertIn("terminal", row["note"])
+
+    def test_what_it_said_of_its_progress_is_read_by_the_rules(self):
+        place = Somewhere({"t": "one"}, places.Shown("", "x\n", progress="4;1;-1"))
+        self.assertEqual(self.poll(self.source(place, agent="grok"))["s"], "working")
+        quiet = Somewhere({"t": "one"}, places.Shown("", "x\n"))
+        self.assertEqual(self.poll(self.source(quiet, agent="grok"))["s"], "idle")
 
 
 RECORD = fake_host.FRAMES["record"]
@@ -363,6 +406,81 @@ class WhatItShows(Hosted):
         self.assertEqual([kind for kind, _ in fake_host.frames_in(asked)], [b"h", b"q"])
         host.sendall(fake_host.written("from_host", "hello_back") + SHOWS)
         self.assertEqual(place.shown(RECORD["id"]).title, "⠋ Thinking")
+
+    def test_a_host_whose_socket_isnt_there_shows_nothing(self):
+        self.write()
+        place = places.HostedPlace(self.folder, alive=lambda pid: True, clock=lambda: self.now, patience=0.0)
+        self.held(place)
+        self.assertIsNone(place.shown(RECORD["id"]))
+        self.assertEqual(place.hosts, {})
+
+    def test_a_host_is_running_if_its_process_is(self):
+        self.assertTrue(places.process_alive(os.getpid()))
+        self.assertFalse(places.process_alive(2 ** 31 - 1))
+        self.assertFalse(places.process_alive(2 ** 70))
+
+    def test_which_sessions_it_has_is_read_again_after_a_while(self):
+        place = self.place()
+        self.assertFalse(place.knows(RECORD["id"]))
+        self.write()
+        self.assertFalse(place.knows(RECORD["id"]))   # read a moment ago
+        self.now += places.RECORDS_READ_EVERY_S
+        self.assertTrue(place.knows(RECORD["id"]))
+
+
+class ARowsHostedSession(Hosted):
+    """What the app is told with a row: the hosted session its agent is in."""
+
+    def agents(self, place, env=None, rows=((7, 7, 7, "ttys012", "codex"),), **kw):
+        source = cs.RunningAgents(pet=Pet(None), scan=lambda: list(rows), env_of=lambda p: env or {}, cwd_of=lambda p: "/w/api",
+                                  rules=RULES, panes=lambda: "", parent_check=lambda pid: False, hosted=place, **kw)
+        source.last_poll = 0
+        with mock.patch.object(source, "_follow"):
+            return source, source.poll()
+
+    def test_an_agent_in_one_shows_what_its_host_says_and_names_it(self):
+        self.write()
+        source, rows = self.agents(self.place(fake_host.FakeHost(SHOWS)))
+        self.assertEqual((rows[0]["id"], rows[0]["s"]), ("p:7", "working"))
+        self.assertEqual(source.desk()["p:7"]["hs"], RECORD["id"])
+
+    def test_its_known_by_its_terminal_even_where_it_hides_what_it_was_told(self):
+        self.write()
+        source, _ = self.agents(self.place(fake_host.FakeHost(QUIET)), env={})
+        self.assertEqual(source.desk()["p:7"]["hs"], RECORD["id"])
+
+    def test_one_further_in_is_known_by_what_its_host_told_it(self):
+        # In a terminal of its own inside the session, as under tmux there: not the host's terminal.
+        self.write()
+        source, _ = self.agents(self.place(), env={"TTYCAT_SESSION": RECORD["id"]}, rows=((7, 7, 7, "ttys099", "codex"),))
+        self.assertEqual(source.desk()["p:7"]["hs"], RECORD["id"])
+
+    def test_a_session_of_another_folder_isnt_named(self):
+        self.write()
+        source, _ = self.agents(self.place(), env={"TTYCAT_SESSION": "someone-elses"}, rows=((7, 7, 7, "ttys099", "codex"),))
+        self.assertNotIn("hs", source.desk().get("p:7", {}))
+
+    def test_outside_any_session_nothing_is_named(self):
+        self.write()
+        source, _ = self.agents(self.place(), rows=((7, 7, 7, "ttys099", "codex"),))
+        self.assertNotIn("hs", source.desk().get("p:7", {}))
+
+    def test_with_no_hosted_sessions_looked_for_nothing_is_named_or_asked(self):
+        source, rows = self.agents(None, env={"TTYCAT_SESSION": RECORD["id"]})
+        self.assertEqual(rows[0]["d"], "state unknown")
+        self.assertNotIn("hs", source.desk().get("p:7", {}))
+
+    def test_a_claude_in_one_is_named_and_keeps_its_own_record_for_its_state(self):
+        self.write()
+        entry = {"pid": 5, "sessionId": "0b6f7a52-1d3c-4e8f-9a2b-3c4d5e6f7a8b", "cwd": "/w/api", "status": "busy"}
+        place = self.place(fake_host.FakeHost(SHOWS))
+        source = cs.ClaudeSessions(pet=Pet(None), read=lambda folder: [entry], env_of=lambda p: {"TTYCAT_SESSION": RECORD["id"]},
+                                   hosted=place)
+        source.last_poll = 0
+        with mock.patch.object(source, "_follow"):
+            rows = source.poll()
+        self.assertEqual(source.desk()[rows[0]["id"]]["hs"], RECORD["id"])
+        self.assertEqual(self.opened, [])   # its host is never asked what it shows
 
 
 if __name__ == "__main__":

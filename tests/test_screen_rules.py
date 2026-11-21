@@ -98,7 +98,7 @@ class FakeRules:
     def knows(self, agent):
         return agent != "aider"
 
-    def detect(self, agent, screen, title=""):
+    def detect(self, agent, screen, title="", progress=""):
         return self.answers.pop(0)
 
 

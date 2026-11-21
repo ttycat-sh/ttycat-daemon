@@ -63,6 +63,8 @@ class Place:
     """Somewhere terminals are, that says what they show. What it knows a terminal by is its own business: a
     source hands that back as it was given."""
 
+    hears_programs = False   # whether a program in a terminal here can say of itself what it's doing: Shown.said
+
     def find(self, found: list[Found]) -> dict[int, object]:
         """Which of these agents are in here: each one's process, to what its terminal is known by here."""
         return {}
@@ -137,6 +139,10 @@ LARGEST_ANSWER = 1024 * 1024     # more than a screen is: a host that sends it i
 LONGEST_SCREEN = 256 * 1024      # of a screen's text that's read
 ANSWER_WITHIN_S = 0.25           # how long one look waits for a host: its answer counts next time if it's later
 SILENT_FOR_S = 5.0               # a host that has said nothing for this long is asked afresh
+RECORDS_READ_EVERY_S = 3.0       # how old what's known of the folder may be, when it's asked which sessions it has
+# What a program says of itself, as the state its row has. An error ends its turn as finishing does: there's
+# something to read, and nothing to answer.
+SAID_AS = {"idle": "idle", "working": "working", "done": "done", "blocked": "blocked", "error": "done"}
 
 
 def frame(kind: bytes, payload: bytes = b"") -> bytes:
@@ -252,11 +258,14 @@ class HostedPlace(Place):
     by its session's name. Only what's in this daemon's sessions folder is looked at, and only hosts that are
     still running."""
 
+    hears_programs = True
+
     def __init__(self, folder: Path | None = None, connect=connect_to, alive=process_alive, clock=time.monotonic,
                  patience: float = ANSWER_WITHIN_S):
         self.folder = Path(folder) if folder is not None else paths.sessions_dir()
         self.connect, self.alive, self.clock, self.patience = connect, alive, clock, patience
         self.records: dict[str, dict] = {}    # session -> what its host wrote down
+        self.read_at: float | None = None     # when that was read
         self.hosts: dict[str, _Host] = {}     # session -> its socket, once it's been looked at
 
     def _read_records(self) -> dict[str, dict]:
@@ -282,10 +291,13 @@ class HostedPlace(Place):
             out[name] = record
         return out
 
-    def find(self, found: list[Found]) -> dict[int, object]:
-        self.records = self._read_records()
+    def _look(self):
+        self.records, self.read_at = self._read_records(), self.clock()
         for gone in set(self.hosts) - set(self.records):
             self.hosts.pop(gone).close()
+
+    def find(self, found: list[Found]) -> dict[int, object]:
+        self._look()
         by_tty = {}
         for name, record in self.records.items():
             tty = record.get("tty")
@@ -294,7 +306,9 @@ class HostedPlace(Place):
         return {f.pid: by_tty[f.tty] for f in found if f.tty in by_tty}
 
     def knows(self, name) -> bool:
-        """Whether that's a session hosted here, as of the last look."""
+        """Whether that's a session hosted here. The folder is read again if it hasn't been for a while."""
+        if self.read_at is None or self.clock() - self.read_at >= RECORDS_READ_EVERY_S:
+            self._look()
         return isinstance(name, str) and name in self.records
 
     def shown(self, held) -> Shown | None:

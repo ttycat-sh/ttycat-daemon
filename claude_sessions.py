@@ -23,7 +23,7 @@ import prompts
 from discovery import (SESSION_PREFIX, Found, ScreenStates, SessionStates, foreground_agents, parse_ps, process_agent,
                        process_pane, session_entry, session_pane, tmux_socket_of)
 from codex_threads import CLI_SOURCE, CODEX_HOME, RECENT_S, Logs, read_threads
-from places import Place, TmuxPlace, capture_pane, list_tmux_panes
+from places import SAID_AS, Place, TmuxPlace, capture_pane, list_tmux_panes
 from screen_rules import shared_rules
 from sources import APP_IN_PATH, AgentSource, app_among_parents  # noqa: F401
 
@@ -31,7 +31,7 @@ REGISTRY = Path.home() / ".claude" / "sessions"
 # TERM_PROGRAM, for when no app can be found among a session's parents (under tmux, say).
 TERMINALS = {"ghostty": "Ghostty", "Apple_Terminal": "Terminal", "iTerm.app": "iTerm", "vscode": "Visual Studio Code",
              "WezTerm": "WezTerm", "kitty": "kitty", "alacritty": "Alacritty", "Hyper": "Hyper", "WarpTerminal": "Warp"}
-ENV_WANTED = ("HERDR_PANE_ID", "TERM_PROGRAM", "TMUX", "TMUX_PANE")
+ENV_WANTED = ("HERDR_PANE_ID", "TERM_PROGRAM", "TMUX", "TMUX_PANE", "TTYCAT_SESSION")
 
 
 pane_of = session_pane  # hook.py names a session the same way
@@ -126,10 +126,11 @@ class _InATerminal(AgentSource):
     """What's the same for anything found in a terminal that isn't ours."""
 
     def __init__(self, hub=None, pet=None, env_of=process_env, app_of=app_among_parents, run=subprocess.run,
-                 parent_check=under_herdr):
+                 parent_check=under_herdr, hosted=None):
         super().__init__(hub=hub, pet=pet)
         self.env_of, self.app_of, self.run, self.parent_check = env_of, app_of, run, parent_check
         self.tmux = TmuxPlace(run=run)
+        self.hosted = hosted   # the sessions held by hosts of their own, if those are looked for: places.HostedPlace
         self.envs: dict[int, dict[str, str]] = {}
         self.parents: dict[int, bool] = {}
         self.pids: dict[str, int] = {}
@@ -157,6 +158,20 @@ class _InATerminal(AgentSource):
         if known.pid is None:
             known.pid = self.pids.get(pane)
         return known
+
+    def _hosted_session(self, pid: int) -> str:
+        """The hosted session it's in, by what its host told it: only one this daemon's folder has."""
+        name = self._env(pid).get("TTYCAT_SESSION", "") if self.hosted else ""
+        return name if name and self.hosted.knows(name) else ""
+
+    def desk(self) -> dict[str, dict]:
+        """And the hosted session each is in, where it's in one: whatever shows that session knows its row by it."""
+        out = super().desk()
+        for pane, pid in self.pids.items():
+            name = self._hosted_session(pid)
+            if name:
+                out.setdefault(pane, {})["hs"] = name
+        return out
 
     def _forget_others(self, running: set[int]):
         self.envs = {pid: env for pid, env in self.envs.items() if pid in running}
@@ -228,10 +243,11 @@ def started_at(pid: int) -> float | None:
 
 
 class RunningAgents(_InATerminal):
-    """Any other agent running in a terminal. Where its terminal is in a place that shows its screen, as
-    tmux does, the screen says what it's doing, by herdr's rules: see places.py. Codex keeps a log, which
-    says most of that anywhere. Otherwise it's known to be there and no more, and says so. Nothing it asks
-    can be answered from here: no keys are ever sent."""
+    """Any other agent running in a terminal. Where its terminal is in a place that shows its screen, as tmux
+    and a hosted session do, the screen says what it's doing, by herdr's rules: see places.py. Where the place
+    hears what the agent says of itself, that comes first. Codex keeps a log, which says most of that anywhere.
+    Otherwise it's known to be there and no more, and says so. Nothing it asks can be answered from here: no
+    keys are ever sent."""
 
     def __init__(self, pet=None, scan=scan_processes, cwd_of=process_cwd, clock=time.monotonic, capture=capture_pane,
                  rules=None, panes=list_tmux_panes, codex_home=CODEX_HOME, codex_threads=read_threads, begun=started_at,
@@ -239,9 +255,9 @@ class RunningAgents(_InATerminal):
         super().__init__(hub=None, pet=pet, **kw)
         self.scan, self.cwd_of, self.clock = scan, cwd_of, clock
         self.screen_states = ScreenStates(rules or shared_rules())
-        if places is None:  # tmux alone, asked as `panes` and `capture` ask it
+        if places is None:  # tmux, asked as `panes` and `capture` ask it, and the hosted sessions if there are any
             self.tmux = TmuxPlace(panes, capture, self.run)
-            places = [self.tmux]
+            places = [self.tmux] + ([self.hosted] if self.hosted else [])
         self.places: list[Place] = list(places)
         self.held: dict[int, tuple[Place, object]] = {}   # process -> the place its terminal is in, and what by
         self.codex_home, self.codex_threads, self.begun = codex_home, codex_threads, begun
@@ -289,14 +305,25 @@ class RunningAgents(_InATerminal):
         self.screens.pop(pane, None)
         f.status, f.title, f.screen = "unknown", "", None
         held = self.held.get(f.pid)
-        if not held or not self.screen_states.rules.knows(f.agent):
+        if not held:
             return
         place, terminal = held
+        reads = self.screen_states.rules.knows(f.agent)
+        if not reads and not place.hears_programs:
+            return   # nothing would come of asking
         shown = place.shown(terminal)
-        if shown:
-            f.title, f.screen = shown.title, shown.text
-            f.status = self.screen_states.update(pane, f.agent, f.screen, f.title)
-            self.screens[pane] = f.screen
+        if not shown:
+            return
+        # What it says of itself comes before what its screen looks like: it knows, where the rules infer.
+        said = SAID_AS.get((shown.said or {}).get("state"))
+        if said:
+            f.status = said
+        elif reads:
+            f.status = self.screen_states.update(pane, f.agent, shown.text, shown.title, shown.progress)
+        else:
+            return
+        f.title, f.screen = shown.title, shown.text
+        self.screens[pane] = f.screen
 
     def _follow(self, agents: list[dict], now: float):
         pass  # no Claude here, and Codex's logs are read with the state they give
@@ -335,6 +362,10 @@ class RunningAgents(_InATerminal):
 
     def _held(self, pid: int) -> tuple[Place, object] | None:
         return self.held.get(pid) or super()._held(pid)
+
+    def _hosted_session(self, pid: int) -> str:
+        place, terminal = self.held.get(pid) or (None, None)   # by its terminal first: it may hide what it was told
+        return str(terminal) if place is not None and place is self.hosted else super()._hosted_session(pid)
 
     def _read_prompt(self, pane: str, agent: str) -> tuple[str, prompts.Ask]:
         text = self.screens.get(pane, "")
