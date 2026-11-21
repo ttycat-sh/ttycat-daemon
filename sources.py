@@ -274,15 +274,16 @@ class DemoSource:
         return True, ""
 
 
-class HerdrSource:
-    def __init__(self, focus_app="Ghostty", only_panes=None, hub=None, pet=None):
-        self.chosen_app = focus_app  # None: whichever terminal herdr turns out to be in
-        self.found_app = (0.0, FALLBACK_TERMINAL)
+class AgentSource:
+    """Agents, as rows for the board and the app. What lists them says what it sees (`_listed`), each as herdr
+    lists an agent, and all that's made of that list is made here, the same for every source: the rows, what each
+    agent is doing, the pet, what's noted of it and the answers."""
+
+    def __init__(self, only_panes=None, hub=None, pet=None):
         self.only_panes = only_panes
         self.hub = hub
         self.pet_stats = pet or Pet()
         self.reachable = True
-        self.herdr_timeout = 3
         self.since: dict[str, tuple[str, float]] = {}
         self.guessed: set[str] = set()         # panes found already at rest: when they came to rest isn't known yet
         self.hist: dict[str, collections.deque] = {}
@@ -303,15 +304,6 @@ class HerdrSource:
     def _logs(self):
         return LocalLogs()
 
-    @property
-    def focus_app(self) -> str:
-        if self.chosen_app:
-            return self.chosen_app
-        now = time.monotonic()
-        if not self.found_app[0] or now - self.found_app[0] >= TERMINAL_LOOK_S:
-            self.found_app = (now, herdr_terminal() or FALLBACK_TERMINAL)
-        return self.found_app[1]
-
     def _wanted(self, agents: list[dict], now: float) -> set[str]:
         return {a["pane_id"] for a in agents}
 
@@ -320,29 +312,14 @@ class HerdrSource:
                     if a.get("agent") == "claude"}
         self.activity.sync(sessions, self._wanted(agents, now))
 
-    def _command(self, *args) -> list[str]:
-        return ["herdr", *args]
-
-    def _run(self, *args) -> str | None:
-        """herdr's output, or None if it failed."""
-        try:
-            out = subprocess.run(self._command(*args), capture_output=True, text=True, timeout=self.herdr_timeout)
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        return out.stdout if out.returncode == 0 else None
-
-    def _herdr(self, *args) -> dict | None:
-        out = self._run(*args)
-        if out is None:
-            return None
-        try:
-            return json.loads(out)
-        except ValueError:
-            return None
+    def _listed(self) -> list[dict] | None:
+        """The agents there are now, each as herdr lists one: its `pane_id`, `agent` and `agent_status`, and what
+        else is known of it. None: there was no asking, so the rows stay as they were."""
+        raise NotImplementedError
 
     def _read_prompt(self, pane: str, agent: str) -> tuple[str, prompts.Ask]:
-        text = self._run("agent", "read", pane, "--source", "detection", "--lines", "60") or ""
-        return text, prompts.parse(agent, text)
+        """What's on its screen, and the prompt read from that. Here, nothing of its screen is known."""
+        return "", prompts.parse(agent, "")
 
     def _note(self, pane: str, tone: int, text: str):
         self.hist.setdefault(pane, collections.deque(maxlen=5)).appendleft((time.time(), tone, text))
@@ -359,11 +336,10 @@ class HerdrSource:
         if now - self.last_poll < 0.5:
             return self.last
         self.last_poll = now
-        r = self._herdr("agent", "list")
-        self.reachable = r is not None
-        if r is None:
+        agents = self._listed()
+        self.reachable = agents is not None
+        if agents is None:
             return self.last
-        agents = r.get("result", {}).get("agents", [])
         self.agents = {a["pane_id"]: a for a in agents}
         if self.hub:
             self.hub.prune({a["pane_id"]: a.get("agent_status", "unknown") for a in agents})
@@ -590,13 +566,7 @@ class HerdrSource:
         return False, "unknown action"
 
     def _open(self, pane: str) -> tuple[bool, str]:
-        if not self._herdr("agent", "focus", pane):
-            return False, "herdr could not focus it"
-        try:
-            done = subprocess.run(["open", "-a", self.focus_app], capture_output=True, timeout=5)
-        except (OSError, subprocess.TimeoutExpired):
-            return False, f"could not open {self.focus_app}"
-        return (True, "") if done.returncode == 0 else (False, f"could not open {self.focus_app}")
+        return False, "it can't be opened from here"
 
     def _enabled(self, pane: str) -> bool:
         return self.only_panes is None or pane in self.only_panes
@@ -620,6 +590,62 @@ class HerdrSource:
         return self.pet_stats.message()
 
 
+class HerdrSource(AgentSource):
+    """The agents herdr holds, asked of its command line."""
+
+    def __init__(self, focus_app="Ghostty", only_panes=None, hub=None, pet=None):
+        super().__init__(only_panes=only_panes, hub=hub, pet=pet)
+        self.chosen_app = focus_app  # None: whichever terminal herdr turns out to be in
+        self.found_app = (0.0, FALLBACK_TERMINAL)
+        self.herdr_timeout = 3
+
+    @property
+    def focus_app(self) -> str:
+        if self.chosen_app:
+            return self.chosen_app
+        now = time.monotonic()
+        if not self.found_app[0] or now - self.found_app[0] >= TERMINAL_LOOK_S:
+            self.found_app = (now, herdr_terminal() or FALLBACK_TERMINAL)
+        return self.found_app[1]
+
+    def _command(self, *args) -> list[str]:
+        return ["herdr", *args]
+
+    def _run(self, *args) -> str | None:
+        """herdr's output, or None if it failed."""
+        try:
+            out = subprocess.run(self._command(*args), capture_output=True, text=True, timeout=self.herdr_timeout)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return out.stdout if out.returncode == 0 else None
+
+    def _herdr(self, *args) -> dict | None:
+        out = self._run(*args)
+        if out is None:
+            return None
+        try:
+            return json.loads(out)
+        except ValueError:
+            return None
+
+    def _listed(self) -> list[dict] | None:
+        listed = self._herdr("agent", "list")
+        return None if listed is None else listed.get("result", {}).get("agents", [])
+
+    def _read_prompt(self, pane: str, agent: str) -> tuple[str, prompts.Ask]:
+        text = self._run("agent", "read", pane, "--source", "detection", "--lines", "60") or ""
+        return text, prompts.parse(agent, text)
+
+    def _open(self, pane: str) -> tuple[bool, str]:
+        if not self._herdr("agent", "focus", pane):
+            return False, "herdr could not focus it"
+        try:
+            done = subprocess.run(["open", "-a", self.focus_app], capture_output=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return False, f"could not open {self.focus_app}"
+        return (True, "") if done.returncode == 0 else (False, f"could not open {self.focus_app}")
+
+
 def under_its_name(row: dict, name: str) -> dict:
     """The row as the board lists it once its agent has a name: under that, in the letters the board has, where it
     listed the folder. The row itself is left alone: a source may hand out the same one again."""
@@ -630,7 +656,7 @@ def under_its_name(row: dict, name: str) -> dict:
 class Fleet:
     """This Mac's sessions plus each remote machine's, as one list for the board."""
 
-    def __init__(self, local: HerdrSource, remotes: list = (), start=True, sessions=None, running=None, threads=None,
+    def __init__(self, local: AgentSource, remotes: list = (), start=True, sessions=None, running=None, threads=None,
                  names: AgentNames | None = None):
         self.local = local
         self.names = names or AgentNames()   # the names people gave their agents: see agent_names.py
@@ -657,7 +683,7 @@ class Fleet:
         if self.threads:
             self.threads.last_poll = value
 
-    def _route(self, sid: str) -> tuple[HerdrSource | None, str]:
+    def _route(self, sid: str) -> tuple[AgentSource | None, str]:
         head, sep, pane = sid.partition("/")
         if not sep:
             if sid.startswith("s:") and self.sessions:

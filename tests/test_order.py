@@ -8,7 +8,7 @@ DAEMON = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(DAEMON))
 from activity import Event  # noqa: E402
 from petstate import Pet  # noqa: E402
-from sources import HerdrSource, row_order  # noqa: E402
+from sources import AgentSource, HerdrSource, row_order  # noqa: E402
 
 
 class Logs:
@@ -46,6 +46,55 @@ class Source(HerdrSource):
 
 def agent(pane, status):
     return {"pane_id": pane, "agent": "claude", "agent_status": status, "cwd": "/work/shop"}
+
+
+class Listing(AgentSource):
+    """A source that only says what it sees: nothing of herdr's."""
+
+    def __init__(self):
+        super().__init__(pet=Pet(None))
+        self.activity = Logs()
+        self.listed = []
+
+    def _listed(self):
+        return self.listed
+
+    def look(self):
+        self.last_poll = 0.0
+        return {row["id"]: row for row in self.poll()}
+
+
+class WhatASourceLists(unittest.TestCase):
+    def test_its_agents_are_rows_with_nothing_but_the_list(self):
+        source = Listing()
+        source.listed = [agent("x:1", "working"), agent("x:2", "idle")]
+        rows = source.look()
+        self.assertEqual({pane: row["s"] for pane, row in rows.items()}, {"x:1": "working", "x:2": "idle"})
+        self.assertTrue(source.reachable)
+
+    def test_without_a_list_the_rows_stay_and_it_isnt_reachable(self):
+        source = Listing()
+        source.listed = [agent("x:1", "working")]
+        before = source.look()
+        source.listed = None
+        self.assertEqual(source.look(), before)
+        self.assertFalse(source.reachable)
+
+    def test_a_prompt_whose_screen_isnt_known_is_still_a_prompt(self):
+        source = Listing()
+        source.listed = [agent("x:1", "blocked")]
+        row = source.look()["x:1"]
+        self.assertEqual((row["s"], row["ask"]), ("blocked", "terminal"))
+
+    def test_it_opens_nothing_unless_it_says_how(self):
+        self.assertEqual(Listing().act("open", "x:1", ""), (False, "it can't be opened from here"))
+
+    def test_herdr_is_one_that_lists_what_its_command_line_says(self):
+        source = Source()
+        source.listed = [agent("p1", "done")]
+        self.assertEqual(source._listed(), source.listed)
+        source._herdr = lambda *args: None
+        self.assertIsNone(source._listed())
 
 
 class Ages(unittest.TestCase):

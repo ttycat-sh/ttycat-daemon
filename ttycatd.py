@@ -886,10 +886,10 @@ def main():
             remotes = api.machines(a, pet, a.focus_app) if api.machines else []
             in_herdr = HubScope(hub, lambda pane: not is_session_pane(pane))
             local = HerdrSource(focus_app=a.focus_app, only_panes=a.only_pane, hub=in_herdr, pet=pet)
-            sessions = ClaudeSessions(focus_app=a.focus_app, hub=HubScope(hub, is_session_pane), pet=pet)
+            sessions = ClaudeSessions(hub=HubScope(hub, is_session_pane), pet=pet)
             try:
-                running = RunningAgents(focus_app=a.focus_app, pet=pet)
-                threads = CodexThreads(focus_app=a.focus_app, pet=pet)
+                running = RunningAgents(pet=pet)
+                threads = CodexThreads(pet=pet)
                 serve(Fleet(local, remotes, sessions=sessions, running=running, threads=threads, names=AgentNames(NAMES_FILE)), a.port,
                       [hub, *(r.hub for r in remotes)], api, board_on=not a.no_board)
             finally:

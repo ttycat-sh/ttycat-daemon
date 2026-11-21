@@ -24,7 +24,7 @@ from discovery import (SESSION_PREFIX, Found, ScreenStates, SessionStates, foreg
                        process_agent, process_pane, session_entry, session_pane, tmux_panes, tmux_place, tmux_socket_of)
 from codex_threads import CLI_SOURCE, CODEX_HOME, RECENT_S, Logs, read_threads
 from screen_rules import shared_rules
-from sources import APP_IN_PATH, HerdrSource, app_among_parents  # noqa: F401
+from sources import APP_IN_PATH, AgentSource, app_among_parents  # noqa: F401
 
 REGISTRY = Path.home() / ".claude" / "sessions"
 # TERM_PROGRAM, for when no app can be found among a session's parents (under tmux, say).
@@ -121,12 +121,12 @@ def process_cwd(pid: int) -> str:
     return next((line[1:] for line in out.stdout.splitlines() if line.startswith("n")), "")
 
 
-class _InATerminal(HerdrSource):
+class _InATerminal(AgentSource):
     """What's the same for anything found in a terminal that isn't ours."""
 
-    def __init__(self, focus_app="Ghostty", hub=None, pet=None, env_of=process_env, app_of=app_among_parents,
-                 run=subprocess.run, parent_check=under_herdr):
-        super().__init__(focus_app=focus_app, hub=hub, pet=pet)
+    def __init__(self, hub=None, pet=None, env_of=process_env, app_of=app_among_parents, run=subprocess.run,
+                 parent_check=under_herdr):
+        super().__init__(hub=hub, pet=pet)
         self.env_of, self.app_of, self.run, self.parent_check = env_of, app_of, run, parent_check
         self.envs: dict[int, dict[str, str]] = {}
         self.parents: dict[int, bool] = {}
@@ -189,16 +189,14 @@ class ClaudeSessions(_InATerminal):
     """Presents the registry as herdr's agent list would, so everything built on that list works
     as it does for herdr: rows, what it's doing, the pet, notifications and answers."""
 
-    def __init__(self, focus_app="Ghostty", hub=None, pet=None, folder: Path = REGISTRY, read=read_registry, **kw):
-        super().__init__(focus_app=focus_app, hub=hub, pet=pet, **kw)
+    def __init__(self, hub=None, pet=None, folder: Path = REGISTRY, read=read_registry, **kw):
+        super().__init__(hub=hub, pet=pet, **kw)
         self.folder, self.read = folder, read
         self.claude = SessionStates()
         self.herdr_sessions: set[str] = set()
         self.all_pids: set[int] = set()  # every Claude running, whoever shows it: none is a plain process
 
-    def _herdr(self, *args) -> dict | None:
-        if args[:2] != ("agent", "list"):
-            return None
+    def _listed(self) -> list[dict]:
         everything = self.read(self.folder)
         self.all_pids = {e["pid"] for e in everything}
         self.procs = {e["sessionId"]: (e["pid"], started_ms / 1000 if isinstance(started_ms := e.get("startedAt"), (int, float)) else 0.0)
@@ -206,7 +204,7 @@ class ClaudeSessions(_InATerminal):
         self._forget_others(self.all_pids)
         mine = [e for e in everything if e["sessionId"] not in self.herdr_sessions and not self._in_herdr_pane(e["pid"])]
         self.pids = {session_pane(e["sessionId"]): e["pid"] for e in mine}
-        return {"result": {"agents": self.claude.agents(mine)}}
+        return self.claude.agents(mine)
 
     def _read_prompt(self, pane: str, agent: str) -> tuple[str, prompts.Ask]:
         text, body = self.claude.asking(pane)
@@ -262,10 +260,10 @@ class RunningAgents(_InATerminal):
     rules. Codex keeps a log, which says most of that anywhere. Otherwise it's known to be there and
     no more, and says so. Nothing it asks can be answered from here: no keys are ever sent."""
 
-    def __init__(self, focus_app="Ghostty", pet=None, scan=scan_processes, cwd_of=process_cwd, clock=time.monotonic,
-                 capture=capture_pane, rules=None, panes=list_tmux_panes, codex_home=CODEX_HOME, codex_threads=read_threads,
-                 begun=started_at, **kw):
-        super().__init__(focus_app=focus_app, hub=None, pet=pet, **kw)
+    def __init__(self, pet=None, scan=scan_processes, cwd_of=process_cwd, clock=time.monotonic, capture=capture_pane,
+                 rules=None, panes=list_tmux_panes, codex_home=CODEX_HOME, codex_threads=read_threads, begun=started_at,
+                 **kw):
+        super().__init__(hub=None, pet=pet, **kw)
         self.scan, self.cwd_of, self.clock, self.capture = scan, cwd_of, clock, capture
         self.screen_states = ScreenStates(rules or shared_rules())
         self.list_panes = panes
@@ -282,9 +280,7 @@ class RunningAgents(_InATerminal):
         self.found: list[Found] = []
         self.scanned_at = -SCAN_EVERY_S
 
-    def _herdr(self, *args) -> dict | None:
-        if args[:2] != ("agent", "list"):
-            return None
+    def _listed(self) -> list[dict]:
         if self.clock() - self.scanned_at >= SCAN_EVERY_S:  # a look at every process: not twice a second
             self.scanned_at = self.clock()
             self.found = foreground_agents(self.scan())
@@ -305,7 +301,7 @@ class RunningAgents(_InATerminal):
         self.pids = {process_pane(f.pid): f.pid for f in mine}
         self.screen_states.forget_others(set(self.pids))
         self.screens = {pane: text for pane, text in self.screens.items() if pane in self.pids}
-        return {"result": {"agents": [process_agent(f) for f in mine]}}
+        return [process_agent(f) for f in mine]
 
     def _read_screen(self, f: Found):
         """Every look, not just every scan: this is where it changes."""
